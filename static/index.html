@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>YUZDOKSANBES POS</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+    <!-- ── PIN MODAL ── -->
+    <div id="pinModal" class="modal-overlay">
+        <div class="modal-box">
+            <h2>YUZDOKSANBES</h2>
+            <p>POS sistemine giriş yapın</p>
+            <input type="password" id="pinInput" maxlength="8" placeholder="••••" autofocus>
+            <div id="pinError"></div>
+            <button class="modal-btn" onclick="checkPin()" style="width:100%;margin-top:4px;">Giriş</button>
+        </div>
+    </div>
+
+    <!-- ── QTY MODAL ── -->
+    <div id="qtyModal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <h3 id="qtyModalTitle"></h3>
+            <div class="qty-controls">
+                <button class="qty-btn" onclick="changeQty(-1)">−</button>
+                <div id="qtyDisplay">1</div>
+                <button class="qty-btn" onclick="changeQty(1)">+</button>
+            </div>
+            <div class="modal-btn-row">
+                <button class="modal-btn" onclick="confirmQty()">Sepete Ekle</button>
+                <button class="modal-btn secondary" onclick="closeQtyModal()">İptal</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── PAY CONFIRM MODAL ── -->
+    <div id="payModal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <h3>Ödeme Onayı</h3>
+            <p id="payModalText" style="font-size:16px;color:#1a1a1a;line-height:1.6;"></p>
+            <div class="modal-btn-row">
+                <button class="modal-btn" onclick="confirmPay()">Onayla</button>
+                <button class="modal-btn secondary" onclick="closePayModal()">İptal</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── SPLIT PAYMENT MODAL ── -->
+    <div id="splitModal" class="modal-overlay" style="display:none;">
+        <div class="modal-box split-box">
+            <h3>Hesabı Böl</h3>
+            <p style="font-size:13px;color:#777;margin-bottom:8px;">
+                Ödenecek adetleri seçin, sonra nakit/kart tutarını girin.
+            </p>
+
+            <div class="split-quick">
+                <button onclick="selectAllUnits()">Tümünü Seç</button>
+                <button onclick="clearAllUnits()">Temizle</button>
+            </div>
+
+            <div id="splitItems" class="split-items"></div>
+
+            <div class="split-total-row">
+                <span>Seçili Toplam</span>
+                <span><b id="splitTotal">0</b> ₺</span>
+            </div>
+            <div class="split-remaining-row">
+                <span>Ödeme sonrası kalan</span>
+                <span><b id="splitRemaining">0</b> ₺</span>
+            </div>
+
+            <div class="split-pay-row">
+                <label>💵 Nakit
+                    <input type="number" id="splitCash" min="0" placeholder="0"
+                           inputmode="numeric" oninput="updateSplitRemainder()">
+                </label>
+                <label>💳 Kart
+                    <input type="number" id="splitCard" min="0" placeholder="0" readonly>
+                </label>
+            </div>
+
+            <div class="modal-btn-row">
+                <button class="modal-btn" id="splitConfirmBtn" onclick="confirmSplit()">Tahsil Et</button>
+                <button class="modal-btn secondary" onclick="closeSplitModal()">İptal</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── LOADING ── -->
+    <div id="loadingOverlay">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- ── TOAST ── -->
+    <div id="toast"></div>
+
+    <!-- ── TOP NAV ── -->
+    <div class="topbar">
+        <span class="topbar-title">YUZDOKSANBES POS</span>
+        <div class="tab-group">
+            <button class="tab-btn active" id="tabPos"   onclick="showTab('pos')">POS</button>
+            <button class="tab-btn"        id="tabPending" onclick="showTab('pending')">Bekleyen <span id="pendingBadge" class="pending-badge" style="display:none;">0</span></button>
+            <button class="tab-btn"        id="tabSales" onclick="showTab('sales')">Satışlar</button>
+            <button class="tab-btn logout-btn" onclick="logout()" title="Çıkış">⎋ Çıkış</button>
+        </div>
+    </div>
+
+    <!-- ══════════════ POS VIEW ══════════════ -->
+    <div id="posView">
+
+        <div class="tables-section">
+            <!-- area tabs (İç Mekan / Kış Bahçesi / Bahçe) filled by app.js -->
+            <div class="area-tabs" id="areaTabs"></div>
+            <!-- per-area table grids filled by app.js from /config -->
+            <div id="tablesContainer"></div>
+        </div>
+
+        <div class="selected-table-bar" id="selectedTable">Masa seçin</div>
+
+        <!-- filled by app.js from /config -->
+        <div class="categories" id="categoriesContainer"></div>
+
+        <!-- menu grids injected here by app.js -->
+        <div id="menuContainer"></div>
+
+        <div class="cart-wrapper">
+            <div class="cart">
+                <div class="cart-header">
+                    <h3>SİPARİŞ LİSTESİ</h3>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div id="baristaStatus"></div>
+                        <span id="orderTime"></span>
+                    </div>
+                </div>
+                <div class="cart-body">
+                    <div id="cart"><div class="cart-empty">Sipariş listesi boş</div></div>
+                </div>
+                <div class="cart-footer">
+                    <div class="cart-footer-col">
+                        <span class="total-label">TOPLAM</span>
+                        <span class="total-amount"><span id="total">0</span> ₺</span>
+                    </div>
+                    <div class="cart-footer-divider"></div>
+                    <div class="cart-footer-col">
+                        <span class="total-label">ÖDENEN</span>
+                        <span class="total-amount paid-amount"><span id="totalPaid">0</span> ₺</span>
+                    </div>
+                    <div class="cart-footer-divider"></div>
+                    <div class="cart-footer-col">
+                        <span class="total-label">KALAN</span>
+                        <span class="total-amount remaining-amount"><span id="totalRemaining">0</span> ₺</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bottom-actions">
+            <button class="action-btn save"   onclick="saveOrder()">💾 Kaydet</button>
+            <button class="action-btn cancel" onclick="cancelOrder()">✕ İptal Et</button>
+            <button class="action-btn split"  onclick="openSplitModal()">✂️ Böl</button>
+            <button class="action-btn cash"   onclick="pay('cash')">💵 Nakit</button>
+            <button class="action-btn card"   onclick="pay('card')">💳 Kart</button>
+        </div>
+
+    </div>
+
+    <!-- ══════════════ PENDING (Bekleyen) VIEW ══════════════ -->
+    <div id="pendingView">
+        <div class="sales-title">BEKLEYEN MÜŞTERİ SİPARİŞLERİ (QR)</div>
+        <div id="pendingList" style="padding:0 16px;">
+            <div style="text-align:center;color:#bbb;padding:30px;">Bekleyen sipariş yok</div>
+        </div>
+    </div>
+
+    <!-- ══════════════ SALES VIEW ══════════════ -->
+    <div id="salesView">
+
+        <div class="sales-title">BUGÜNKÜ ÖZET</div>
+
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="card-label">TOPLAM CİRO</div>
+                <div class="card-value" id="todayTotal">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="card-label">NAKİT</div>
+                <div class="card-value green" id="todayCash">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="card-label">KART</div>
+                <div class="card-value blue" id="todayCard">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="card-label">İŞLEM SAYISI</div>
+                <div class="card-value" id="todayCount">—</div>
+            </div>
+        </div>
+
+        <div class="sales-table-wrap">
+            <div class="sales-table-header">SON İŞLEMLER</div>
+            <table class="sales-table">
+                <thead>
+                    <tr>
+                        <th>MASA</th>
+                        <th>TUTAR</th>
+                        <th>ÖDEME</th>
+                        <th>ZAMAN</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="salesTableBody">
+                    <tr><td colspan="5" style="text-align:center;padding:24px;color:#bbb;">Yükleniyor...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

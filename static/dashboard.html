@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YUZDOKSANBES — Yönetim</title>
+<style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    :root {
+        --ink:#1a1a1a; --cream:#F4EFE6; --paper:#fff; --line:#e8e2d6;
+        --red:#b30000; --green:#2e7d32; --muted:#8a8275; --amber:#f9a825;
+    }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+           background:var(--cream); color:var(--ink); }
+
+    /* layout: sidebar | content */
+    .wrap { display:flex; min-height:100vh; }
+    .sidebar { width:210px; background:var(--ink); color:var(--cream); flex-shrink:0;
+               display:flex; flex-direction:column; padding:18px 0; }
+    .brand { padding:0 20px 18px; font-weight:bold; letter-spacing:1px; font-size:16px;
+             border-bottom:1px solid #333; margin-bottom:10px; }
+    .nav-item { padding:13px 20px; cursor:pointer; font-weight:600; font-size:14px;
+                color:#bdb6a8; display:flex; gap:10px; align-items:center; border-left:3px solid transparent; }
+    .nav-item:hover { background:#262626; color:var(--cream); }
+    .nav-item.active { background:#262626; color:var(--cream); border-left-color:var(--amber); }
+    .nav-spacer { flex:1; }
+    .nav-logout { padding:13px 20px; cursor:pointer; font-size:13px; color:#e57373; font-weight:600; }
+
+    .content { flex:1; padding:24px 28px; overflow-y:auto; }
+    .page-title { font-size:22px; font-weight:bold; margin-bottom:4px; }
+    .page-sub { color:var(--muted); font-size:13px; margin-bottom:22px; }
+
+    /* HOME: two columns */
+    .home-grid { display:grid; grid-template-columns:1fr 1.1fr; gap:22px; }
+    @media (max-width:900px){ .home-grid{ grid-template-columns:1fr; } }
+
+    .card { background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:20px; }
+    .card h3 { font-size:12px; letter-spacing:1px; color:var(--muted); margin-bottom:14px; text-transform:uppercase; }
+
+    /* summary stats */
+    .stat-row { display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+    .stat { flex:1; min-width:120px; background:var(--cream); border-radius:11px; padding:14px; }
+    .stat .label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+    .stat .value { font-size:26px; font-weight:bold; margin-top:4px; }
+    .stat .value.green { color:var(--green); }
+    .stat .value.blue { color:#1565c0; }
+    .top-items { list-style:none; }
+    .top-items li { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px; }
+    .top-items li:last-child { border-bottom:none; }
+    .top-items .q { font-weight:bold; }
+
+    /* calendar */
+    .cal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+    .cal-head button { background:var(--cream); border:1px solid var(--line); border-radius:8px;
+                       width:34px; height:34px; font-size:18px; cursor:pointer; }
+    .cal-nav { background:var(--cream); border:1px solid var(--line); border-radius:8px;
+               width:34px; height:34px; font-size:18px; cursor:pointer; }
+
+    .alert-banner { background:#fff8e1; border:1.5px solid var(--amber); border-radius:10px;
+                    padding:13px 16px; margin-bottom:14px; font-weight:600; font-size:14px; cursor:pointer; }
+    .alert-banner:hover { background:#fff3cd; }
+    .alert-banner.low { background:#fff5f5; border-color:var(--red); color:#b71c1c; }
+
+    /* ── PLAN (Schedule) ── */
+    .plan-filter-btn { padding:6px 14px; border:1.5px solid var(--line); border-radius:20px;
+                       background:#fff; font-size:12px; font-weight:600; cursor:pointer; color:var(--ink); }
+    .plan-filter-btn.active { background:var(--ink); color:var(--cream); border-color:var(--ink); }
+    .plan-task { display:flex; align-items:flex-start; gap:10px; padding:11px 12px;
+                 border:1px solid var(--line); border-radius:11px; margin-bottom:8px;
+                 background:var(--paper); transition:opacity .15s; }
+    .plan-task.done { opacity:.5; }
+    .plan-task.done .pt-title { text-decoration:line-through; }
+    .pt-title { font-size:14px; font-weight:600; word-break:break-word; }
+    .pt-edit { background:none; border:none; cursor:pointer; font-size:15px; padding:0 4px; opacity:.5; }
+    .pt-edit:hover { opacity:1; }
+    .plan-edit-input { font-size:14px; font-weight:600; border:none; border-bottom:2px solid var(--ink);
+                       outline:none; background:transparent; width:100%; padding:2px 0; }
+
+    .stock-low-tag { background:var(--red); color:#fff; font-size:11px; font-weight:bold;
+                     padding:2px 8px; border-radius:10px; margin-left:8px; }
+    .stock-qty { font-weight:bold; font-size:16px; }
+    .stock-qty.low { color:var(--red); }
+    .cal-head .month { font-weight:bold; font-size:16px; }
+    .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
+    .cal-dow { text-align:center; font-size:11px; color:var(--muted); font-weight:bold; padding-bottom:4px; }
+    .cal-cell { aspect-ratio:1; border:1px solid var(--line); border-radius:9px; padding:5px;
+                cursor:pointer; position:relative; display:flex; flex-direction:column; background:var(--paper); }
+    .cal-cell:hover { border-color:var(--ink); }
+    .cal-cell.empty { border:none; cursor:default; background:transparent; }
+    .cal-cell.today { background:#fdf6e3; border-color:var(--amber); }
+    .cal-cell.selected { outline:2px solid var(--ink); outline-offset:1px; }
+    .cal-cell .d { font-size:13px; font-weight:600; }
+    .cal-dots { display:flex; gap:3px; margin-top:auto; flex-wrap:wrap; }
+    .cal-dot { width:7px; height:7px; border-radius:50%; background:var(--green); }
+    .cal-dot.pending { background:var(--amber); }
+    .cal-dot.overdue { background:var(--red); }
+
+    /* task panel */
+    .task-day-title { font-weight:bold; font-size:15px; margin:18px 0 10px; }
+    .task-add { display:flex; gap:8px; margin-bottom:12px; }
+    .task-add input { flex:1; padding:11px; border:1px solid var(--line); border-radius:9px; font-size:14px; }
+    .task-add select { padding:11px; border:1px solid var(--line); border-radius:9px; font-size:13px; background:#fff; }
+    .task-add button { padding:11px 16px; background:var(--ink); color:var(--cream); border:none;
+                       border-radius:9px; font-weight:bold; cursor:pointer; }
+    .task-list { list-style:none; }
+    .task-item { display:flex; align-items:center; gap:10px; padding:11px; border:1px solid var(--line);
+                 border-radius:10px; margin-bottom:8px; background:var(--paper); }
+    .task-item.done { opacity:0.55; }
+    .task-item.done .t-title { text-decoration:line-through; }
+    .task-item.overdue { border-color:var(--red); background:#fff5f5; }
+    .t-check { width:24px; height:24px; border:2px solid #bbb; border-radius:7px; cursor:pointer; flex-shrink:0;
+               display:flex; align-items:center; justify-content:center; font-weight:bold; color:#fff; }
+    .task-item.done .t-check { background:var(--green); border-color:var(--green); }
+    .t-body { flex:1; }
+    .t-title { font-size:14px; font-weight:600; }
+    .t-cat { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.4px; }
+    .t-overdue-mark { color:var(--red); font-weight:bold; font-size:18px; }
+    .t-del { background:none; border:none; color:#c62828; cursor:pointer; font-size:16px; }
+    .empty-note { color:var(--muted); font-size:13px; padding:14px 0; text-align:center; }
+
+    /* "coming soon" sections */
+    .soon { text-align:center; color:var(--muted); padding:60px 20px; }
+    .soon .big { font-size:40px; margin-bottom:10px; }
+
+    /* PIN modal */
+    .modal-overlay { position:fixed; inset:0; background:rgba(26,26,26,0.55); display:flex;
+                     align-items:center; justify-content:center; z-index:100; }
+    .modal-box { background:var(--paper); border-radius:16px; padding:28px; width:300px; text-align:center; }
+    .modal-box h2 { font-size:18px; letter-spacing:1px; margin-bottom:4px; }
+    .modal-box p { color:var(--muted); font-size:13px; margin-bottom:14px; }
+    .modal-box input { width:100%; padding:13px; font-size:18px; text-align:center; letter-spacing:6px;
+                       border:2px solid var(--line); border-radius:10px; margin-bottom:8px; }
+    .modal-box button { width:100%; padding:13px; background:var(--ink); color:var(--cream); border:none;
+                        border-radius:10px; font-weight:bold; cursor:pointer; }
+    #pinError { color:var(--red); font-size:13px; min-height:18px; margin-bottom:6px; }
+
+    #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--ink);
+             color:#fff; padding:13px 22px; border-radius:10px; font-weight:600; z-index:200; display:none; }
+</style>
+</head>
+<body>
+
+<div id="pinModal" class="modal-overlay">
+    <div class="modal-box">
+        <h2>YÖNETİM</h2>
+        <p>Yönetici girişi (checkout PIN)</p>
+        <input type="password" id="pinInput" maxlength="12" placeholder="••••" autofocus>
+        <div id="pinError"></div>
+        <button onclick="checkPin()">Giriş</button>
+    </div>
+</div>
+
+<div class="wrap" id="app" style="display:none;">
+    <div class="sidebar">
+        <div class="brand">YUZDOKSANBES</div>
+        <div class="nav-item active" data-page="home"     onclick="nav('home',this)">🏠 Anasayfa</div>
+        <div class="nav-item"        data-page="reports"  onclick="nav('reports',this)">📊 Raporlar</div>
+        <div class="nav-item"        data-page="stock"    onclick="nav('stock',this)">📦 Stok</div>
+        <div class="nav-item"        data-page="expenses" onclick="nav('expenses',this)">🧾 Gelir/Gider</div>
+        <div class="nav-item"        data-page="schedule" onclick="nav('schedule',this)">🗓️ Plan</div>
+        <div class="nav-item"        data-page="settings" onclick="nav('settings',this)">⚙️ Ayarlar</div>
+        <div class="nav-spacer"></div>
+        <div class="nav-logout" onclick="logout()">⎋ Çıkış</div>
+    </div>
+
+    <div class="content" id="content"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+    // ===== auth =====
+    let AUTH_TOKEN = sessionStorage.getItem('dash_token') || null;
+    function authFetch(url, opts={}) {
+        opts.headers = opts.headers || {};
+        if(AUTH_TOKEN) opts.headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+        return fetch(url, opts);
+    }
+    async function checkPin() {
+        const val = document.getElementById('pinInput').value;
+        try {
+            const res = await fetch('/auth', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pin:val})});
+            if(res.ok) {
+                const d = await res.json();
+                if(d.role !== 'checkout') {   // only admin/checkout may enter
+                    document.getElementById('pinError').innerText = 'Yönetici yetkisi gerekli.';
+                    return;
+                }
+                AUTH_TOKEN = d.token;
+                sessionStorage.setItem('dash_token', AUTH_TOKEN);
+                document.getElementById('pinModal').style.display='none';
+                document.getElementById('app').style.display='flex';
+                nav('home', document.querySelector('.nav-item'));
+            } else {
+                document.getElementById('pinError').innerText = 'Hatalı PIN.';
+            }
+        } catch(e) { document.getElementById('pinError').innerText = 'Sunucuya ulaşılamadı.'; }
+    }
+    function logout() {
+        if(!confirm('Çıkış yapılsın mı?')) return;
+        sessionStorage.removeItem('dash_token'); AUTH_TOKEN=null; location.reload();
+    }
+
+    function esc(s){const m={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};return String(s==null?'':s).replace(/[&<>"']/g,c=>m[c]);}
+    function showToast(msg){const t=document.getElementById('toast');t.innerText=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
+    const TR_MONTHS=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+    const TR_DOW=['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
+    function ymd(d){const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;}
+    function todayYMD(){return ymd(new Date());}
+
+    // ===== navigation =====
+    let currentPage = 'home';
+
+    function nav(page, el) {
+        currentPage = page;
+        document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+        if(el) el.classList.add('active');
+        if(page==='home') renderHome();
+        else if(page==='reports') renderReports();
+        else if(page==='expenses') renderFinance();
+        else if(page==='stock') renderStock();
+        else if(page==='schedule') renderSchedule();
+        else if(page==='settings') renderSettings();
+        else renderSoon(page);
+    }
+
+    // Auto-refresh the Home summary every 60s so new sales appear without
+    // the user having to switch tabs or reload.
+    setInterval(() => {
+        if(currentPage === 'home') loadSummary();
+    }, 60000);
+    const SOON_TITLES={stock:'Stok'};
+    function renderSoon(page){
+        document.getElementById('content').innerHTML =
+            `<div class="page-title">${SOON_TITLES[page]}</div>
+             <div class="soon"><div class="big">🚧</div><div>Bu bölüm yakında eklenecek.</div></div>`;
+    }
+
+    // ===== GELİR / GİDER (Finance) =====
+    let finYear, finMonth, finData=null, expCategories=[];
+
+    async function renderFinance() {
+        const now = new Date();
+        if(!finYear) { finYear = now.getFullYear(); finMonth = now.getMonth()+1; }
+        try { expCategories = (await (await authFetch('/finance/categories')).json()).categories; } catch(e){}
+        const catOpts = expCategories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">Gelir / Gider</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
+                <button class="cal-nav" onclick="finPrev()">‹</button>
+                <span class="page-sub" id="finMonthLabel" style="margin:0;font-size:16px;font-weight:bold;"></span>
+                <button class="cal-nav" onclick="finNext()">›</button>
+            </div>
+            <div class="home-grid">
+                <div>
+                    <!-- NET SUMMARY CARDS -->
+                    <div class="stat-row" id="finStats"></div>
+
+                    <!-- ADD EXPENSE -->
+                    <div class="card" style="margin-bottom:14px;">
+                        <h3>➕ Gider Ekle</h3>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+                            <select id="expCat" style="padding:10px;border:1px solid var(--line);border-radius:8px;">${catOpts}</select>
+                            <input id="expDate" type="date" value="${todayYMD()}" style="padding:10px;border:1px solid var(--line);border-radius:8px;">
+                        </div>
+                        <input id="expDesc" placeholder="Açıklama (opsiyonel)" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;">
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+                            <input id="expQty" type="number" value="1" min="0.1" step="0.1" placeholder="Adet" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;" oninput="calcExpTotal()">
+                            <span style="font-weight:bold;">×</span>
+                            <input id="expPrice" type="number" min="0" step="0.01" placeholder="Birim Fiyat" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;" oninput="calcExpTotal()">
+                            <span style="font-weight:bold;">=</span>
+                            <span id="expTotal" style="font-weight:bold;min-width:80px;text-align:right;">0 ₺</span>
+                        </div>
+                        <button onclick="addExpense()" style="width:100%;padding:12px;background:var(--ink);color:var(--cream);border:none;border-radius:9px;font-weight:bold;cursor:pointer;">Gider Kaydet</button>
+                    </div>
+
+                    <!-- ADD MANUAL INCOME -->
+                    <div class="card" style="margin-bottom:14px;">
+                        <h3>➕ Ek Gelir Ekle</h3>
+                        <div style="display:flex;gap:8px;margin-bottom:8px;">
+                            <input id="incDesc" placeholder="Açıklama" style="flex:2;padding:10px;border:1px solid var(--line);border-radius:8px;">
+                            <input id="incAmt" type="number" min="0" placeholder="Tutar" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;">
+                            <input id="incDate" type="date" value="${todayYMD()}" style="padding:10px;border:1px solid var(--line);border-radius:8px;">
+                        </div>
+                        <button onclick="addIncome()" style="width:100%;padding:12px;background:var(--green);color:#fff;border:none;border-radius:9px;font-weight:bold;cursor:pointer;">Gelir Kaydet</button>
+                    </div>
+
+                    <!-- EXPENSE TABLE -->
+                    <div class="card">
+                        <h3>📋 Giderler</h3>
+                        <div id="expTable" style="max-height:350px;overflow-y:auto;"></div>
+                    </div>
+
+                    <!-- MANUAL INCOME TABLE -->
+                    <div class="card" style="margin-top:14px;" id="incCard">
+                        <h3>📋 Ek Gelirler</h3>
+                        <div id="incTable"></div>
+                    </div>
+                </div>
+                <div>
+                    <!-- PIE CHART -->
+                    <div class="card" style="text-align:center;">
+                        <h3>📊 Gelir / Gider Dağılımı</h3>
+                        <canvas id="pieChart" width="320" height="320" style="margin:0 auto;display:block;"></canvas>
+                        <div id="pieLegend" style="margin-top:14px;"></div>
+                    </div>
+                    <!-- CATEGORY BREAKDOWN -->
+                    <div class="card" style="margin-top:14px;">
+                        <h3>📦 Gider Kategorileri</h3>
+                        <div id="catBreakdown"></div>
+                    </div>
+                </div>
+            </div>`;
+        await loadFinance();
+    }
+
+    function calcExpTotal() {
+        const q = parseFloat(document.getElementById('expQty')?.value) || 0;
+        const p = parseFloat(document.getElementById('expPrice')?.value) || 0;
+        const el = document.getElementById('expTotal');
+        if(el) el.innerText = (q * p).toFixed(0) + ' ₺';
+    }
+
+    function finPrev() { finMonth--; if(finMonth<1){finMonth=12;finYear--;} loadFinance(); }
+    function finNext() { finMonth++; if(finMonth>12){finMonth=1;finYear++;} loadFinance(); }
+
+    async function loadFinance() {
+        document.getElementById('finMonthLabel').innerText = `${TR_MONTHS[finMonth-1]} ${finYear}`;
+        try {
+            finData = await (await authFetch(`/finance/summary?year=${finYear}&month=${finMonth}`)).json();
+        } catch(e) { finData = null; }
+        renderFinStats();
+        renderExpTable();
+        renderIncTable();
+        renderPieChart();
+        renderCatBreakdown();
+    }
+
+    function renderFinStats() {
+        if(!finData) return;
+        const d = finData;
+        document.getElementById('finStats').innerHTML = `
+            <div class="stat"><div class="label">Satış Geliri</div><div class="value green">${d.sales_income.toFixed(0)} ₺</div></div>
+            <div class="stat"><div class="label">Ek Gelir</div><div class="value green">${d.manual_income.toFixed(0)} ₺</div></div>
+            <div class="stat"><div class="label">Toplam Gider</div><div class="value" style="color:var(--red);">${d.total_expenses.toFixed(0)} ₺</div></div>
+            <div class="stat"><div class="label">Net Kâr</div><div class="value" style="color:${d.net_income>=0?'var(--green)':'var(--red)'};">${d.net_income.toFixed(0)} ₺</div></div>`;
+    }
+
+    function renderExpTable() {
+        if(!finData) return;
+        const rows = finData.expenses;
+        const el = document.getElementById('expTable');
+        if(!rows.length){ el.innerHTML='<div class="empty-note">Bu ay gider yok</div>'; return; }
+        el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <tr style="background:#fce4ec;"><th style="padding:8px;text-align:left;">Kategori</th><th>Adet</th><th>Birim</th><th>Tutar</th><th></th></tr>
+            ${rows.map(r => {
+                const dd = r.expense_date.split('-').reverse().join('-');
+                return `<tr style="border-bottom:1px solid var(--line);">
+                    <td style="padding:7px;"><b>${esc(r.category)}</b>${r.description?'<br><span style="color:var(--muted);font-size:11px;">'+esc(r.description)+' — '+dd+'</span>':' <span style="color:var(--muted);font-size:11px;">'+dd+'</span>'}</td>
+                    <td style="text-align:center;">${r.quantity}</td>
+                    <td style="text-align:right;">${r.unit_price.toFixed(0)} ₺</td>
+                    <td style="text-align:right;font-weight:bold;color:var(--red);">${r.amount.toFixed(0)} ₺</td>
+                    <td><button class="t-del" onclick="delExpense(${r.id})">✕</button></td>
+                </tr>`}).join('')}
+            </table>`;
+    }
+
+    function renderIncTable() {
+        if(!finData) return;
+        const rows = finData.manual_incomes;
+        const el = document.getElementById('incTable');
+        if(!rows.length){ el.innerHTML='<div class="empty-note">Ek gelir yok</div>'; return; }
+        el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <tr style="background:#e8f5e9;"><th style="padding:8px;text-align:left;">Açıklama</th><th>Tarih</th><th>Tutar</th><th></th></tr>
+            ${rows.map(r => {
+                const dd = r.income_date.split('-').reverse().join('-');
+                return `<tr style="border-bottom:1px solid var(--line);">
+                    <td style="padding:7px;">${esc(r.description)}</td>
+                    <td style="text-align:center;color:var(--muted);">${dd}</td>
+                    <td style="text-align:right;font-weight:bold;color:var(--green);">${r.amount.toFixed(0)} ₺</td>
+                    <td><button class="t-del" onclick="delIncome(${r.id})">✕</button></td>
+                </tr>`}).join('')}
+            </table>`;
+    }
+
+    function renderPieChart() {
+        if(!finData) return;
+        const inc = finData.total_income;
+        const exp = finData.total_expenses;
+        const net = finData.net_income;
+        const canvas = document.getElementById('pieChart');
+        if(!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        const cx = W/2, cy = H/2, R = Math.min(W,H)/2 - 20;
+        ctx.clearRect(0, 0, W, H);
+
+        if(inc === 0 && exp === 0) {
+            ctx.fillStyle = 'var(--muted)';
+            ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('Henüz veri yok', cx, cy);
+            document.getElementById('pieLegend').innerHTML = '';
+            return;
+        }
+
+        const total = inc + exp;
+        const slices = [
+            { label: 'Gelir',  val: inc, color: '#43a047' },
+            { label: 'Gider',  val: exp, color: '#e53935' },
+        ];
+        let start = -Math.PI / 2;
+        slices.forEach(s => {
+            const angle = (s.val / total) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, R, start, start + angle);
+            ctx.closePath();
+            ctx.fillStyle = s.color;
+            ctx.fill();
+            // label
+            if(s.val > 0) {
+                const mid = start + angle / 2;
+                const lx = cx + Math.cos(mid) * R * 0.6;
+                const ly = cy + Math.sin(mid) * R * 0.6;
+                ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText(Math.round(s.val/total*100) + '%', lx, ly);
+            }
+            start += angle;
+        });
+        // Donut hole
+        ctx.beginPath(); ctx.arc(cx, cy, R*0.45, 0, Math.PI*2);
+        ctx.fillStyle = '#fff'; ctx.fill();
+        // Net in center
+        ctx.fillStyle = net >= 0 ? '#2e7d32' : '#c62828';
+        ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(net.toFixed(0) + ' ₺', cx, cy - 2);
+        ctx.fillStyle = '#888'; ctx.font = '11px sans-serif';
+        ctx.fillText('Net Kâr', cx, cy + 16);
+
+        // Legend
+        document.getElementById('pieLegend').innerHTML = `
+            <div style="display:flex;justify-content:center;gap:20px;font-size:13px;">
+                <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#43a047;margin-right:4px;"></span>Gelir: <b>${inc.toFixed(0)} ₺</b></span>
+                <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#e53935;margin-right:4px;"></span>Gider: <b>${exp.toFixed(0)} ₺</b></span>
+            </div>`;
+    }
+
+    function renderCatBreakdown() {
+        if(!finData) return;
+        const cats = finData.expense_by_category;
+        const el = document.getElementById('catBreakdown');
+        if(!cats.length){ el.innerHTML='<div class="empty-note">Kategori verisi yok</div>'; return; }
+        const max = Math.max(...cats.map(c=>c.total));
+        el.innerHTML = cats.map(c => {
+            const pct = max > 0 ? (c.total / max * 100) : 0;
+            return `<div style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px;">
+                    <span>${esc(c.category)}</span><b>${c.total.toFixed(0)} ₺</b>
+                </div>
+                <div style="height:8px;background:#f0ece5;border-radius:4px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:#e53935;border-radius:4px;"></div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    async function addExpense() {
+        const cat = document.getElementById('expCat').value;
+        const date = document.getElementById('expDate').value;
+        const desc = document.getElementById('expDesc').value;
+        const qty = parseFloat(document.getElementById('expQty').value) || 1;
+        const price = parseFloat(document.getElementById('expPrice').value) || 0;
+        if(!cat || price <= 0) { showToast('Fiyat girin'); return; }
+        await authFetch('/finance/add-expense', {method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({expense_date:date, category:cat, description:desc, quantity:qty, unit_price:price})});
+        document.getElementById('expDesc').value='';
+        document.getElementById('expQty').value='1';
+        document.getElementById('expPrice').value='';
+        document.getElementById('expTotal').innerText='0 ₺';
+        showToast('Gider eklendi ✓');
+        loadFinance();
+    }
+    async function addIncome() {
+        const desc = document.getElementById('incDesc').value.trim();
+        const amt = parseFloat(document.getElementById('incAmt').value) || 0;
+        const date = document.getElementById('incDate').value;
+        if(!desc || amt <= 0) { showToast('Açıklama ve tutar girin'); return; }
+        await authFetch('/finance/add-income', {method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({income_date:date, description:desc, amount:amt})});
+        document.getElementById('incDesc').value='';
+        document.getElementById('incAmt').value='';
+        showToast('Gelir eklendi ✓');
+        loadFinance();
+    }
+    async function delExpense(id) {
+        await authFetch('/finance/delete-expense', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
+        loadFinance();
+    }
+    async function delIncome(id) {
+        await authFetch('/finance/delete-income', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
+        loadFinance();
+    }
+
+    // ===== PLAN (Schedule) =====
+    let planTasks = [], planFilter = null;   // planFilter = 'YYYY-MM-DD' or null (show all)
+
+    const CAT_COLOURS = {
+        temizlik: '#1565c0', stok: '#e65100', siparis: '#2e7d32', genel: '#555'
+    };
+    function catColour(cat) { return CAT_COLOURS[cat] || '#555'; }
+
+    async function renderSchedule() {
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">Plan</div>
+            <div class="page-sub" id="planSub"></div>
+            <div class="home-grid">
+                <!-- LEFT: task manager -->
+                <div>
+                    <!-- Quick-add -->
+                    <div class="card" style="margin-bottom:14px;">
+                        <h3>➕ Yeni Görev</h3>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                            <input id="plTitle" placeholder="Görev başlığı…"
+                                style="flex:2;min-width:140px;padding:10px;border:1px solid var(--line);border-radius:8px;">
+                            <select id="plCat"
+                                style="padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff;">
+                                <option value="genel">Genel</option>
+                                <option value="temizlik">Temizlik</option>
+                                <option value="stok">Stok</option>
+                                <option value="siparis">Sipariş</option>
+                            </select>
+                            <input id="plDate" type="date" value="${todayYMD()}"
+                                style="padding:10px;border:1px solid var(--line);border-radius:8px;">
+                        </div>
+                        <button onclick="planAddTask()"
+                            style="width:100%;padding:12px;background:var(--ink);color:var(--cream);
+                                   border:none;border-radius:9px;font-weight:bold;cursor:pointer;">
+                            Görevi Ekle
+                        </button>
+                    </div>
+
+                    <!-- Filter bar -->
+                    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+                        <span style="font-size:12px;color:var(--muted);font-weight:600;">GÖSTER:</span>
+                        <button class="plan-filter-btn active" id="pf-all"   onclick="planSetFilter(null,this)">Tümü</button>
+                        <button class="plan-filter-btn"       id="pf-today" onclick="planSetFilter('today',this)">Bugün</button>
+                        <button class="plan-filter-btn"       id="pf-week"  onclick="planSetFilter('week',this)">Bu Hafta</button>
+                        <button class="plan-filter-btn"       id="pf-over"  onclick="planSetFilter('overdue',this)">⚠️ Gecikmiş</button>
+                        <button class="plan-filter-btn"       id="pf-done"  onclick="planSetFilter('done',this)">✓ Tamamlanan</button>
+                    </div>
+
+                    <!-- Task groups -->
+                    <div id="planList"></div>
+                </div>
+
+                <!-- RIGHT: mini calendar -->
+                <div>
+                    <div class="card" style="position:sticky;top:20px;">
+                        <div class="cal-head">
+                            <button onclick="planCalPrev()">‹</button>
+                            <span class="month" id="planCalMonth"></span>
+                            <button onclick="planCalNext()">›</button>
+                        </div>
+                        <div class="cal-grid" id="planCalDow"></div>
+                        <div class="cal-grid" id="planCalGrid" style="margin-top:5px;"></div>
+                        <div style="margin-top:14px;font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;">
+                            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--red);margin-right:4px;"></span>Gecikmiş</span>
+                            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--amber);margin-right:4px;"></span>Bekleyen</span>
+                            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--green);margin-right:4px;"></span>Tamamlanan</span>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+        await loadPlanTasks();
+        planRenderCal();
+        planRenderList();
+    }
+
+    // calendar state (reuse calYear/calMonth from home, or own)
+    let planCalYear = new Date().getFullYear();
+    let planCalMonth = new Date().getMonth();
+
+    function planCalPrev() { planCalMonth--; if(planCalMonth<0){planCalMonth=11;planCalYear--;} planRenderCal(); }
+    function planCalNext() { planCalMonth++; if(planCalMonth>11){planCalMonth=0;planCalYear++;} planRenderCal(); }
+
+    function planRenderCal() {
+        document.getElementById('planCalMonth').innerText = `${TR_MONTHS[planCalMonth]} ${planCalYear}`;
+        document.getElementById('planCalDow').innerHTML = TR_DOW.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+        const first = (new Date(planCalYear, planCalMonth, 1).getDay()+6)%7;
+        const days  = new Date(planCalYear, planCalMonth+1, 0).getDate();
+        const today = todayYMD();
+        const prefix = `${planCalYear}-${String(planCalMonth+1).padStart(2,'0')}`;
+
+        // build day→task summary for dots
+        const dayMap = {};
+        planTasks.forEach(t => {
+            if(!t.task_date.startsWith(prefix)) return;
+            if(!dayMap[t.task_date]) dayMap[t.task_date] = {pending:0,done:0,overdue:0};
+            if(t.done) dayMap[t.task_date].done++;
+            else if(t.task_date < today) dayMap[t.task_date].overdue++;
+            else dayMap[t.task_date].pending++;
+        });
+
+        let html = '';
+        for(let i=0;i<first;i++) html+='<div class="cal-cell empty"></div>';
+        for(let d=1;d<=days;d++){
+            const ds = `${prefix}-${String(d).padStart(2,'0')}`;
+            const info = dayMap[ds];
+            let dots = '';
+            if(info) {
+                if(info.overdue) dots+=`<span class="cal-dot overdue"></span>`;
+                if(info.pending) dots+=`<span class="cal-dot pending"></span>`;
+                if(info.done)    dots+=`<span class="cal-dot" style="background:var(--green)"></span>`;
+            }
+            const cls = ['cal-cell'];
+            if(ds===today) cls.push('today');
+            if(planFilter===ds) cls.push('selected');
+            html+=`<div class="${cls.join(' ')}" onclick="planClickDay('${ds}')">
+                     <span class="d">${d}</span>
+                     <div class="cal-dots">${dots}</div>
+                   </div>`;
+        }
+        document.getElementById('planCalGrid').innerHTML = html;
+    }
+
+    function planClickDay(ds) {
+        planFilter = (planFilter===ds) ? null : ds;   // toggle off if same day
+        document.querySelectorAll('.plan-filter-btn').forEach(b=>b.classList.remove('active'));
+        document.getElementById('pf-all').classList.add('active');
+        planRenderCal();
+        planRenderList();
+    }
+
+    async function loadPlanTasks() {
+        try { planTasks = (await (await authFetch('/tasks')).json()).tasks || []; }
+        catch(e){ planTasks=[]; }
+    }
+
+    function planSetFilter(type, btn) {
+        planFilter = type;
+        document.querySelectorAll('.plan-filter-btn').forEach(b=>b.classList.remove('active'));
+        if(btn) btn.classList.add('active');
+        planRenderCal();
+        planRenderList();
+    }
+
+    function planRenderList() {
+        const today = todayYMD();
+        const weekEnd = (() => { const d=new Date(); d.setDate(d.getDate()+6); return ymd(d); })();
+        const el = document.getElementById('planList');
+        if(!el) return;
+
+        // apply filter
+        let tasks = [...planTasks];
+        if(planFilter === 'today')   tasks = tasks.filter(t=>t.task_date===today);
+        else if(planFilter==='week') tasks = tasks.filter(t=>t.task_date>=today && t.task_date<=weekEnd);
+        else if(planFilter==='overdue') tasks = tasks.filter(t=>!t.done && t.task_date<today);
+        else if(planFilter==='done') tasks = tasks.filter(t=>t.done);
+        else if(planFilter && planFilter.match(/^\d{4}-\d{2}-\d{2}$/)) tasks = tasks.filter(t=>t.task_date===planFilter);
+        // default: all
+
+        if(!tasks.length) {
+            el.innerHTML='<div class="empty-note" style="padding:30px;">Bu filtrede görev yok</div>';
+            return;
+        }
+
+        // group: overdue | today | upcoming | future | done
+        const groups = [
+            { key:'overdue',  label:'⚠️ Gecikmiş',   items:[], colour:'#b71c1c', bg:'#fff5f5' },
+            { key:'today',    label:'📌 Bugün',       items:[], colour:'#1565c0', bg:'#e3f2fd' },
+            { key:'upcoming', label:'📅 Bu Hafta',    items:[], colour:'var(--ink)', bg:'var(--cream)' },
+            { key:'future',   label:'🔜 Gelecek',     items:[], colour:'var(--muted)', bg:'var(--cream)' },
+            { key:'done',     label:'✓ Tamamlanan',   items:[], colour:'var(--green)', bg:'#f1f8f2' },
+        ];
+        tasks.forEach(t => {
+            if(t.done)                          groups[4].items.push(t);
+            else if(t.task_date < today)        groups[0].items.push(t);
+            else if(t.task_date === today)      groups[1].items.push(t);
+            else if(t.task_date <= weekEnd)     groups[2].items.push(t);
+            else                                groups[3].items.push(t);
+        });
+
+        let html = '';
+        groups.forEach(g => {
+            if(!g.items.length) return;
+            g.items.sort((a,b)=>a.task_date.localeCompare(b.task_date));
+            html += `<div style="margin-bottom:18px;">
+                <div style="font-weight:700;font-size:12px;letter-spacing:1px;color:${g.colour};
+                            text-transform:uppercase;margin-bottom:8px;padding-bottom:4px;
+                            border-bottom:2px solid ${g.colour}40;">${g.label}</div>`;
+            g.items.forEach(t => {
+                const dd = t.task_date.split('-').reverse().join('-');
+                const catC = catColour(t.category);
+                html += `
+                <div class="plan-task ${t.done?'done':''}" id="ptask_${t.id}">
+                    <div class="t-check" onclick="planToggle(${t.id},${t.done?0:1})">${t.done?'✓':''}</div>
+                    <div class="t-body" style="flex:1;">
+                        <div class="pt-title" id="ptitle_${t.id}">${esc(t.title)}</div>
+                        <div style="display:flex;gap:8px;align-items:center;margin-top:3px;">
+                            <span style="font-size:11px;font-weight:700;color:${catC};
+                                         text-transform:uppercase;">${esc(t.category)}</span>
+                            <span style="font-size:11px;color:var(--muted);">${dd}</span>
+                        </div>
+                    </div>
+                    <button class="pt-edit" onclick="planEdit(${t.id})" title="Düzenle">✏️</button>
+                    <button class="t-del"   onclick="planDelete(${t.id})">✕</button>
+                </div>`;
+            });
+            html += `</div>`;
+        });
+        el.innerHTML = html;
+    }
+
+    async function planAddTask() {
+        const title = document.getElementById('plTitle').value.trim();
+        const cat   = document.getElementById('plCat').value;
+        const date  = document.getElementById('plDate').value;
+        if(!title){ showToast('Görev başlığı girin'); return; }
+        if(!date) { showToast('Tarih seçin'); return; }
+        await authFetch('/tasks', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({task_date:date, title, category:cat})
+        });
+        document.getElementById('plTitle').value = '';
+        showToast('Görev eklendi ✓');
+        await loadPlanTasks(); planRenderCal(); planRenderList();
+    }
+
+    async function planToggle(id, done) {
+        await authFetch('/tasks/update', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({id, done:!!done})
+        });
+        await loadPlanTasks(); planRenderCal(); planRenderList();
+    }
+
+    async function planDelete(id) {
+        await authFetch('/tasks/delete', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({id})
+        });
+        await loadPlanTasks(); planRenderCal(); planRenderList();
+    }
+
+    function planEdit(id) {
+        const task = planTasks.find(t=>t.id===id);
+        if(!task) return;
+        const titleEl = document.getElementById('ptitle_'+id);
+        if(!titleEl) return;
+        // replace title span with inline input
+        titleEl.outerHTML = `<input id="pedit_${id}" class="plan-edit-input"
+            value="${esc(task.title)}" onblur="planSaveEdit(${id})"
+            onkeydown="if(event.key==='Enter')planSaveEdit(${id});if(event.key==='Escape')planRenderList();">`;
+        const inp = document.getElementById('pedit_'+id);
+        if(inp){ inp.focus(); inp.select(); }
+    }
+
+    async function planSaveEdit(id) {
+        const inp = document.getElementById('pedit_'+id);
+        if(!inp) return;
+        const title = inp.value.trim();
+        if(!title){ planRenderList(); return; }
+        await authFetch('/tasks/update', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({id, title})
+        });
+        await loadPlanTasks(); planRenderCal(); planRenderList();
+    }
+
+    // ===== STOCK =====
+    let stockStaff=[], stockItems=[];
+
+    async function renderStock() {
+        try { stockStaff = (await (await authFetch('/stock/config')).json()).staff; } catch(e){ stockStaff=[]; }
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">Stok</div>
+            <div class="page-sub">Haftalık sayım — gerçek miktarı girin. ${''}5'in altı kırmızı ile işaretlenir.</div>
+            <div class="home-grid">
+                <div>
+                    <div class="card">
+                        <h3>📦 Mevcut Stok</h3>
+                        <div id="stockTable"></div>
+                    </div>
+                    <div class="card" style="margin-top:14px;">
+                        <h3>➕ Yeni Ürün Ekle</h3>
+                        <div style="display:flex;gap:8px;">
+                            <input id="newStockName" placeholder="Ürün adı" style="flex:2;padding:10px;border:1px solid var(--line);border-radius:8px;">
+                            <input id="newStockUnit" placeholder="Birim (adet/kg...)" value="adet" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;">
+                            <button onclick="addStockItem()" style="padding:10px 16px;background:var(--ink);color:var(--cream);border:none;border-radius:8px;font-weight:bold;cursor:pointer;">Ekle</button>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <div class="card">
+                        <h3>📝 Sayım Geçmişi</h3>
+                        <div id="stockLogs" style="max-height:480px;overflow-y:auto;"></div>
+                    </div>
+                </div>
+            </div>`;
+        await loadStock();
+        loadStockLogs();
+    }
+
+    async function loadStock() {
+        try { const d = await (await authFetch('/stock/items')).json(); stockItems = d.items; }
+        catch(e){ stockItems=[]; }
+        renderStockTable();
+    }
+
+    function staffOptions() {
+        return stockStaff.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('') + '<option value="__other">Diğer…</option>';
+    }
+
+    function renderStockTable() {
+        const el = document.getElementById('stockTable');
+        if(!stockItems.length){ el.innerHTML='<div class="empty-note">Stok ürünü yok</div>'; return; }
+        el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <tr style="background:#eef2f3;">
+                <th style="padding:8px;text-align:left;">Ürün</th>
+                <th>Mevcut</th><th>Yeni Sayım</th><th>Sayan</th><th></th><th></th>
+            </tr>
+            ${stockItems.map(it=>{
+                const low = it.low;
+                return `<tr style="border-bottom:1px solid var(--line);">
+                    <td style="padding:8px;">${esc(it.name)} <span style="color:var(--muted);font-size:11px;">(${esc(it.unit)})</span>
+                        ${low?'<span class="stock-low-tag">DÜŞÜK</span>':''}
+                        ${it.updated_by?`<br><span style="color:var(--muted);font-size:10px;">son: ${esc(it.updated_by)} • ${it.updated_at?fmtDate(it.updated_at):''}</span>`:''}
+                    </td>
+                    <td style="text-align:center;"><span class="stock-qty ${low?'low':''}">${it.quantity}</span></td>
+                    <td style="text-align:center;"><input type="number" id="cnt_${it.id}" min="0" step="0.1" placeholder="${it.quantity}" style="width:70px;padding:7px;border:1px solid var(--line);border-radius:7px;text-align:center;"></td>
+                    <td style="text-align:center;">
+                        <select id="by_${it.id}" onchange="toggleOther(${it.id})" style="padding:7px;border:1px solid var(--line);border-radius:7px;">${staffOptions()}</select>
+                        <input id="byo_${it.id}" placeholder="isim" style="display:none;width:80px;padding:7px;border:1px solid var(--line);border-radius:7px;margin-top:4px;">
+                    </td>
+                    <td><button onclick="saveCount(${it.id})" style="padding:7px 12px;background:var(--green);color:#fff;border:none;border-radius:7px;font-weight:bold;cursor:pointer;">Kaydet</button></td>
+                    <td><button class="t-del" onclick="delStockItem(${it.id},'${esc(it.name).replace(/'/g,"")}')">✕</button></td>
+                </tr>`;
+            }).join('')}
+            </table>`;
+    }
+
+    function toggleOther(id) {
+        const sel = document.getElementById('by_'+id);
+        const oth = document.getElementById('byo_'+id);
+        oth.style.display = sel.value === '__other' ? 'block' : 'none';
+    }
+
+    async function saveCount(id) {
+        const qtyEl = document.getElementById('cnt_'+id);
+        const qty = parseFloat(qtyEl.value);
+        if(isNaN(qty)){ showToast('Miktar girin'); return; }
+        let by = document.getElementById('by_'+id).value;
+        if(by === '__other') by = document.getElementById('byo_'+id).value.trim();
+        if(!by){ showToast('Sayan kişiyi seçin'); return; }
+        await authFetch('/stock/count',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({id, quantity:qty, counted_by:by})});
+        showToast('Sayım kaydedildi ✓');
+        await loadStock(); loadStockLogs();
+    }
+
+    async function addStockItem() {
+        const name = document.getElementById('newStockName').value.trim();
+        const unit = document.getElementById('newStockUnit').value.trim() || 'adet';
+        if(!name){ showToast('Ürün adı girin'); return; }
+        const res = await authFetch('/stock/add-item',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({name, unit})});
+        if(!res.ok){ showToast('Bu ürün zaten var'); return; }
+        document.getElementById('newStockName').value='';
+        showToast('Ürün eklendi ✓');
+        loadStock();
+    }
+
+    async function delStockItem(id, name) {
+        if(!confirm(`"${name}" stok listesinden silinsin mi?`)) return;
+        await authFetch('/stock/delete-item',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+        loadStock(); loadStockLogs();
+    }
+
+    async function loadStockLogs() {
+        try {
+            const d = await (await authFetch('/stock/logs?limit=40')).json();
+            const el = document.getElementById('stockLogs');
+            if(!d.logs.length){ el.innerHTML='<div class="empty-note">Henüz sayım yok</div>'; return; }
+            el.innerHTML = d.logs.map(l=>`
+                <div style="padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;">
+                    <div style="display:flex;justify-content:space-between;">
+                        <b>${esc(l.item_name)}</b><span class="stock-qty">${l.quantity}</span>
+                    </div>
+                    <div style="color:var(--muted);font-size:11px;">${esc(l.counted_by)} • ${fmtDate(l.counted_at)}</div>
+                </div>`).join('');
+        } catch(e){}
+    }
+
+    // ===== REPORTS =====
+    function renderReports() {
+        const today = todayYMD();
+        const ym = today.slice(0,7);   // YYYY-MM
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">Raporlar</div>
+            <div class="page-sub">Günlük ve aylık raporları PDF olarak indirin.</div>
+            <div class="home-grid">
+                <div class="card">
+                    <h3>📄 Günlük Rapor</h3>
+                    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+                        Satılan ürünler, adetler ve nakit/kart toplamları.</p>
+                    <div class="task-add" style="margin-bottom:0;">
+                        <input type="date" id="dailyDate" value="${today}">
+                        <button onclick="genDaily()">Günlük PDF</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>📚 Aylık Rapor</h3>
+                    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+                        Aylık gelir, günlük döküm, giderler ve tamamlanan işler.</p>
+                    <div class="task-add" style="margin-bottom:0;">
+                        <input type="month" id="monthlyMonth" value="${ym}">
+                        <button onclick="genMonthly()">Aylık PDF</button>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    async function downloadPdf(url, fallbackName) {
+        try {
+            const res = await authFetch(url);
+            if(!res.ok) throw new Error();
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = fallbackName;
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(a.href);
+            showToast('Rapor indirildi ✓');
+        } catch(e) { showToast('Rapor oluşturulamadı'); }
+    }
+    function genDaily() {
+        const d = document.getElementById('dailyDate').value || todayYMD();
+        downloadPdf('/reports/daily?date=' + d, 'gunluk_' + d + '.pdf');
+    }
+    function genMonthly() {
+        const ym = document.getElementById('monthlyMonth').value || todayYMD().slice(0,7);
+        const [y,m] = ym.split('-');
+        downloadPdf(`/reports/monthly?year=${y}&month=${parseInt(m,10)}`, 'aylik_' + ym + '.pdf');
+    }
+
+    // ===== HOME =====
+    let calYear, calMonth, selectedDate=null, monthTasks=[];
+
+    async function renderHome() {
+        const now=new Date(); if(calYear==null){calYear=now.getFullYear();calMonth=now.getMonth();}
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">Anasayfa</div>
+            <div class="page-sub" id="homeSub"></div>
+            <div id="stockAlert"></div>
+            <div class="home-grid">
+                <div>
+                    <div class="card" id="summaryCard"><h3>Bugünün Özeti</h3><div class="empty-note">Yükleniyor…</div></div>
+                </div>
+                <div>
+                    <div class="card">
+                        <div class="cal-head">
+                            <button onclick="calPrev()">‹</button>
+                            <span class="month" id="calMonth"></span>
+                            <button onclick="calNext()">›</button>
+                        </div>
+                        <div class="cal-grid" id="calDow"></div>
+                        <div class="cal-grid" id="calGrid" style="margin-top:5px;"></div>
+                        <div class="task-day-title" id="taskDayTitle">Bir gün seçin</div>
+                        <div class="task-add">
+                            <input id="taskInput" placeholder="Yeni görev…" onkeydown="if(event.key==='Enter')addTask()">
+                            <select id="taskCat">
+                                <option value="genel">Genel</option>
+                                <option value="temizlik">Temizlik</option>
+                                <option value="stok">Stok</option>
+                                <option value="siparis">Sipariş</option>
+                            </select>
+                            <button onclick="addTask()">Ekle</button>
+                        </div>
+                        <ul class="task-list" id="taskList"></ul>
+                    </div>
+                </div>
+            </div>`;
+        const p=n=>String(n).padStart(2,'0');
+        const d=new Date();
+        document.getElementById('homeSub').innerText = `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()}`;
+        loadSummary();
+        selectedDate = todayYMD();
+        await loadMonth();
+        renderCalendar();
+        renderDayTasks();
+    }
+
+    async function loadSummary() {
+        try {
+            const s = await (await authFetch('/dashboard/summary')).json();
+            let items = s.top_items.length
+                ? `<ul class="top-items">${s.top_items.map(i=>`<li><span>${esc(i.name)}</span><span class="q">${i.qty}</span></li>`).join('')}</ul>`
+                : '<div class="empty-note">Bugün henüz satış yok</div>';
+            document.getElementById('summaryCard').innerHTML = `
+                <h3>Bugünün Özeti</h3>
+                <div class="stat-row">
+                    <div class="stat"><div class="label">Ciro</div><div class="value">${s.revenue.toFixed(0)} ₺</div></div>
+                    <div class="stat"><div class="label">Satış</div><div class="value">${s.sale_count}</div></div>
+                    <div class="stat"><div class="label">Ürün</div><div class="value">${s.items_sold}</div></div>
+                </div>
+                <div class="stat-row">
+                    <div class="stat"><div class="label">Nakit</div><div class="value green">${s.cash.toFixed(0)} ₺</div></div>
+                    <div class="stat"><div class="label">Kart</div><div class="value blue">${s.card.toFixed(0)} ₺</div></div>
+                </div>
+                <h3 style="margin-top:18px;">En Çok Satanlar</h3>
+                ${items}`;
+            // Stock-check reminder on Wednesday & Saturday, + low-stock warning anytime.
+            const al = document.getElementById('stockAlert');
+            if(al) {
+                let banners = '';
+                if(s.stock_check_day) {
+                    banners += `<div class="alert-banner" onclick="nav('stock',document.querySelector('[data-page=stock]'))">
+                        🗓️ Bugün stok sayım günü! Stoğu kontrol edin →</div>`;
+                }
+                if(s.low_stock_count > 0) {
+                    banners += `<div class="alert-banner low" onclick="nav('stock',document.querySelector('[data-page=stock]'))">
+                        ⚠️ ${s.low_stock_count} ürün düşük stokta! →</div>`;
+                }
+                al.innerHTML = banners;
+            }
+        } catch(e){ document.getElementById('summaryCard').innerHTML='<h3>Bugünün Özeti</h3><div class="empty-note">Yüklenemedi</div>'; }
+    }
+
+    function calPrev(){ calMonth--; if(calMonth<0){calMonth=11;calYear--;} loadMonth().then(renderCalendar); }
+    function calNext(){ calMonth++; if(calMonth>11){calMonth=0;calYear++;} loadMonth().then(renderCalendar); }
+
+    async function loadMonth() {
+        const first=`${calYear}-${String(calMonth+1).padStart(2,'0')}-01`;
+        const lastDay=new Date(calYear,calMonth+1,0).getDate();
+        const last=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+        try { monthTasks = (await (await authFetch(`/tasks?start=${first}&end=${last}`)).json()).tasks; }
+        catch(e){ monthTasks=[]; }
+    }
+
+    function renderCalendar() {
+        document.getElementById('calMonth').innerText = `${TR_MONTHS[calMonth]} ${calYear}`;
+        document.getElementById('calDow').innerHTML = TR_DOW.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+        const firstDow=(new Date(calYear,calMonth,1).getDay()+6)%7; // Mon=0
+        const days=new Date(calYear,calMonth+1,0).getDate();
+        const today=todayYMD();
+        let html='';
+        for(let i=0;i<firstDow;i++) html+='<div class="cal-cell empty"></div>';
+        for(let d=1;d<=days;d++){
+            const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const dayTasks=monthTasks.filter(t=>t.task_date===ds);
+            let dots='';
+            dayTasks.slice(0,4).forEach(t=>{
+                let cls='cal-dot';
+                if(t.done) cls+='';
+                else if(ds<today) cls+=' overdue';
+                else cls+=' pending';
+                dots+=`<span class="${cls}"></span>`;
+            });
+            const cls=['cal-cell']; if(ds===today)cls.push('today'); if(ds===selectedDate)cls.push('selected');
+            html+=`<div class="${cls.join(' ')}" onclick="selectDate('${ds}')">
+                     <span class="d">${d}</span><div class="cal-dots">${dots}</div></div>`;
+        }
+        document.getElementById('calGrid').innerHTML=html;
+    }
+
+    function selectDate(ds){ selectedDate=ds; renderCalendar(); renderDayTasks(); }
+
+    function renderDayTasks() {
+        if(!selectedDate){ return; }
+        const [y,m,d]=selectedDate.split('-');
+        document.getElementById('taskDayTitle').innerText = `${d}-${m}-${y} görevleri`;
+        const today=todayYMD();
+        const list=monthTasks.filter(t=>t.task_date===selectedDate);
+        const el=document.getElementById('taskList');
+        if(list.length===0){ el.innerHTML='<div class="empty-note">Bu güne görev yok</div>'; return; }
+        el.innerHTML = list.map(t=>{
+            const overdue = !t.done && t.task_date<today;
+            const cls=['task-item']; if(t.done)cls.push('done'); if(overdue)cls.push('overdue');
+            return `<li class="${cls.join(' ')}">
+                <div class="t-check" onclick="toggleTask(${t.id},${t.done?0:1})">${t.done?'✓':''}</div>
+                <div class="t-body"><div class="t-title">${esc(t.title)}</div><div class="t-cat">${esc(t.category)}</div></div>
+                ${overdue?'<span class="t-overdue-mark" title="Gecikti">❗</span>':''}
+                <button class="t-del" onclick="delTask(${t.id})">✕</button>
+            </li>`;
+        }).join('');
+    }
+
+    async function addTask() {
+        const input=document.getElementById('taskInput');
+        const title=input.value.trim(); if(!title||!selectedDate) return;
+        const category=document.getElementById('taskCat').value;
+        await authFetch('/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({task_date:selectedDate,title,category})});
+        input.value='';
+        await loadMonth(); renderCalendar(); renderDayTasks();
+    }
+    async function toggleTask(id,done){
+        await authFetch('/tasks/update',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({id,done:!!done})});
+        await loadMonth(); renderCalendar(); renderDayTasks();
+    }
+    async function delTask(id){
+        await authFetch('/tasks/delete',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({id})});
+        await loadMonth(); renderCalendar(); renderDayTasks();
+    }
+
+    // ===== AYARLAR (Menu settings) =====
+    let menuData = null;
+
+    function renderSettings() {
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">Ayarlar — Menü</div>
+            <div class="page-sub">Ürün fiyatlarını düzenleyin, ürün veya bölüm ekleyin/silin.
+                Değişiklikler POS, garson ve QR ekranları yenilendiğinde geçerli olur.</div>
+            <div class="card" style="margin-bottom:16px;">
+                <h3>➕ Yeni Ürün Ekle</h3>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <input id="miCat" list="catList" placeholder="Bölüm (örn. TEAS)"
+                           style="flex:2;min-width:150px;padding:10px;border:1px solid var(--line);border-radius:8px;">
+                    <datalist id="catList"></datalist>
+                    <input id="miName" placeholder="Ürün adı"
+                           style="flex:2;min-width:150px;padding:10px;border:1px solid var(--line);border-radius:8px;">
+                    <input id="miPrice" type="number" min="0" step="1" placeholder="Fiyat ₺"
+                           style="flex:1;min-width:90px;padding:10px;border:1px solid var(--line);border-radius:8px;">
+                    <button onclick="addMenuItem()"
+                            style="padding:10px 18px;background:var(--ink);color:var(--cream);border:none;border-radius:8px;font-weight:bold;cursor:pointer;">Ekle</button>
+                </div>
+                <div class="page-sub" style="margin:8px 0 0;">Yeni bir bölüm adı yazarsanız o bölüm otomatik oluşturulur.</div>
+            </div>
+            <div id="menuSections"><div class="empty-note">Yükleniyor…</div></div>`;
+        loadMenuSettings();
+    }
+
+    async function loadMenuSettings() {
+        try { menuData = await (await authFetch('/menu/all')).json(); }
+        catch(e){ menuData = {sections:[], categories:[]}; }
+        document.getElementById('catList').innerHTML =
+            menuData.categories.map(c=>`<option value="${esc(c)}">`).join('');
+        const wrap = document.getElementById('menuSections');
+        if(!menuData.sections.length){
+            wrap.innerHTML='<div class="empty-note">Menü boş. Yukarıdan ürün ekleyin.</div>'; return;
+        }
+        wrap.innerHTML = menuData.sections.map((sec,i)=>`
+            <div class="card" style="margin-bottom:14px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+                    <h3 style="margin:0;">${esc(sec.category)} <span style="color:var(--muted);font-weight:normal;">(${sec.items.length})</span></h3>
+                    <div style="display:flex;gap:6px;">
+                        <button onclick="renameSection(${i})"
+                                style="padding:6px 10px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer;font-size:12px;">✎ Bölüm adı</button>
+                        <button onclick="deleteSection(${i})"
+                                style="padding:6px 10px;border:1px solid var(--red);color:var(--red);background:#fff;border-radius:7px;cursor:pointer;font-size:12px;">🗑 Bölümü sil</button>
+                    </div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    ${sec.items.map(it=>`
+                        <tr style="border-bottom:1px solid var(--line);">
+                            <td style="padding:7px 4px;">
+                                <input id="mn_${it.id}" value="${esc(it.name)}"
+                                       style="width:100%;padding:8px;border:1px solid var(--line);border-radius:7px;"></td>
+                            <td style="padding:7px 4px;width:130px;white-space:nowrap;">
+                                <input id="mp_${it.id}" type="number" min="0" step="1" value="${it.price}"
+                                       style="width:95px;padding:8px;border:1px solid var(--line);border-radius:7px;text-align:right;"> ₺</td>
+                            <td style="width:80px;">
+                                <button onclick="saveMenuItem(${it.id})"
+                                        style="padding:7px 12px;background:var(--green);color:#fff;border:none;border-radius:7px;font-weight:bold;cursor:pointer;">Kaydet</button></td>
+                            <td style="width:36px;"><button class="t-del" onclick="deleteMenuItem(${it.id})">✕</button></td>
+                        </tr>`).join('')}
+                </table>
+            </div>`).join('');
+    }
+
+    function findMenuItem(id){
+        for(const s of menuData.sections){ const it=s.items.find(x=>x.id===id); if(it) return it; }
+        return null;
+    }
+
+    async function addMenuItem(){
+        const category=document.getElementById('miCat').value.trim();
+        const name=document.getElementById('miName').value.trim();
+        const price=parseFloat(document.getElementById('miPrice').value);
+        if(!category||!name){ showToast('Bölüm ve ürün adı girin'); return; }
+        if(isNaN(price)||price<0){ showToast('Geçerli fiyat girin'); return; }
+        const res=await authFetch('/menu/add-item',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({category,name,price})});
+        if(!res.ok){ const d=await res.json().catch(()=>({})); showToast(d.detail||'Eklenemedi'); return; }
+        document.getElementById('miName').value=''; document.getElementById('miPrice').value='';
+        showToast('Ürün eklendi ✓');
+        loadMenuSettings();
+    }
+
+    async function saveMenuItem(id){
+        const name=document.getElementById('mn_'+id).value.trim();
+        const price=parseFloat(document.getElementById('mp_'+id).value);
+        if(!name){ showToast('Ürün adı boş olamaz'); return; }
+        if(isNaN(price)||price<0){ showToast('Geçerli fiyat girin'); return; }
+        const res=await authFetch('/menu/update-item',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({id,name,price})});
+        if(!res.ok){ const d=await res.json().catch(()=>({})); showToast(d.detail||'Kaydedilemedi'); return; }
+        showToast('Kaydedildi ✓');
+        loadMenuSettings();
+    }
+
+    async function deleteMenuItem(id){
+        const it=findMenuItem(id);
+        if(!confirm(`"${it?it.name:''}" menüden silinsin mi?`)) return;
+        await authFetch('/menu/delete-item',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({id})});
+        showToast('Silindi');
+        loadMenuSettings();
+    }
+
+    async function renameSection(i){
+        const sec=menuData.sections[i];
+        const nn=prompt('Yeni bölüm adı:', sec.category);
+        if(nn===null) return;
+        const nv=nn.trim();
+        if(!nv||nv===sec.category) return;
+        await authFetch('/menu/rename-section',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({old:sec.category, new:nv})});
+        showToast('Bölüm güncellendi ✓');
+        loadMenuSettings();
+    }
+
+    async function deleteSection(i){
+        const sec=menuData.sections[i];
+        if(!confirm(`"${sec.category}" bölümü ve içindeki ${sec.items.length} ürün silinsin mi?`)) return;
+        await authFetch('/menu/delete-section',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({category:sec.category})});
+        showToast('Bölüm silindi');
+        loadMenuSettings();
+    }
+
+    // boot
+    document.getElementById('pinInput').addEventListener('keydown',e=>{if(e.key==='Enter')checkPin();});
+    if(AUTH_TOKEN){
+        document.getElementById('pinModal').style.display='none';
+        document.getElementById('app').style.display='flex';
+        nav('home', document.querySelector('.nav-item'));
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>YUZDOKSANBES — Garson</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+    /* Waiter-specific tweaks layered on the shared stylesheet */
+    .role-badge { font-size:11px; background:#ce93d8; color:#1a1a1a; font-weight:bold;
+                  padding:3px 10px; border-radius:12px; margin-left:8px; }
+    .accept-bar { background:#fff8e1; border:1.5px solid #ffd54f; border-radius:10px;
+                  padding:10px 12px; margin:8px 12px; display:flex; align-items:center; gap:10px; }
+    .accept-bar .txt { flex:1; font-size:13px; font-weight:600; }
+    .accept-bar button { background:#2e7d32; color:#fff; border:none; border-radius:8px;
+                         padding:10px 16px; font-weight:bold; cursor:pointer; }
+</style>
+</head>
+<body>
+    <!-- PIN MODAL -->
+    <div id="pinModal" class="modal-overlay">
+        <div class="modal-box">
+            <h2>YUZDOKSANBES</h2>
+            <p>Garson girişi</p>
+            <input type="password" id="pinInput" maxlength="8" placeholder="••••" autofocus>
+            <div id="pinError"></div>
+            <button class="modal-btn" onclick="checkPin()" style="width:100%;margin-top:4px;">Giriş</button>
+        </div>
+    </div>
+
+    <!-- QTY MODAL -->
+    <div id="qtyModal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <h3 id="qtyModalTitle"></h3>
+            <div class="qty-controls">
+                <button class="qty-btn" onclick="changeQty(-1)">−</button>
+                <div id="qtyDisplay">1</div>
+                <button class="qty-btn" onclick="changeQty(1)">+</button>
+            </div>
+            <div class="modal-btn-row">
+                <button class="modal-btn" onclick="confirmQty()">Sepete Ekle</button>
+                <button class="modal-btn secondary" onclick="closeQtyModal()">İptal</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingOverlay"><div class="spinner"></div></div>
+    <div id="toast"></div>
+
+    <div class="topbar">
+        <span class="topbar-title">GARSON <span class="role-badge">Sipariş</span></span>
+        <button class="tab-btn logout-btn" onclick="logout()" style="float:right;" title="Çıkış">⎋ Çıkış</button>
+    </div>
+
+    <div id="posView">
+        <div class="tables-section">
+            <div class="area-tabs" id="areaTabs"></div>
+            <div id="tablesContainer"></div>
+        </div>
+
+        <div class="selected-table-bar" id="selectedTable">Masa seçin</div>
+
+        <!-- Accept bar appears when the selected table has pending QR items -->
+        <div id="acceptBar" class="accept-bar" style="display:none;">
+            <span class="txt" id="acceptTxt"></span>
+            <button onclick="refusePending()" style="background:#fff;color:#c62828;border:2px solid #ef9a9a;">✕ Reddet</button>
+            <button onclick="acceptPending()">✓ Onayla</button>
+        </div>
+
+        <div class="categories" id="categoriesContainer"></div>
+        <div id="menuContainer"></div>
+
+        <div class="cart-wrapper">
+            <div class="cart">
+                <div class="cart-header">
+                    <h3>SİPARİŞ LİSTESİ</h3>
+                    <span id="orderTime"></span>
+                </div>
+                <div class="cart-body">
+                    <div id="cart"><div class="cart-empty">Sipariş listesi boş</div></div>
+                </div>
+                <div class="cart-footer">
+                    <span class="total-label">TOPLAM</span>
+                    <span class="total-amount"><span id="total">0</span> ₺</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Waiter actions: ONLY save. No pay, no cancel. -->
+        <div class="bottom-actions">
+            <button class="action-btn save" onclick="saveOrder()" style="flex:1;">💾 Siparişi Kaydet</button>
+        </div>
+    </div>
+
+<script>
+    // ===== auth =====
+    let AUTH_TOKEN = sessionStorage.getItem('waiter_token') || null;
+    function logout(){
+        if(!confirm('Çıkış yapılsın mı?')) return;
+        sessionStorage.removeItem('waiter_token');
+        AUTH_TOKEN=null; location.reload();
+    }
+    function authFetch(url, opts={}) {
+        opts.headers = opts.headers || {};
+        if(AUTH_TOKEN) opts.headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+        return fetch(url, opts);
+    }
+    async function checkPin() {
+        const val = document.getElementById('pinInput').value;
+        try {
+            const res = await fetch('/auth', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pin:val})});
+            if(res.ok) {
+                const d = await res.json();
+                // Any valid staff PIN can use the waiter page (checkout PIN works too).
+                AUTH_TOKEN = d.token;
+                sessionStorage.setItem('waiter_token', AUTH_TOKEN);
+                document.getElementById('pinModal').style.display = 'none';
+                init();
+            } else {
+                document.getElementById('pinError').innerText = 'Hatalı PIN.';
+                document.getElementById('pinInput').value = '';
+            }
+        } catch(e) { document.getElementById('pinError').innerText = 'Sunucuya ulaşılamadı.'; }
+    }
+
+    // ===== state =====
+    let AREAS=[], ALL_TABLES=[], CURRENCY='₺', MENU={};
+    function esc(s){const m={"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};return String(s==null?"":s).replace(/[&<>"']/g,c=>m[c]);}
+    let currentTable=null, cart=[], pendingItem=null, currentQty=1;
+
+    function showToast(msg, type) {
+        const t=document.getElementById('toast'); t.innerText=msg;
+        t.className = type||''; t.style.display='block';
+        setTimeout(()=>t.style.display='none', 2000);
+    }
+    function showLoading(){document.getElementById('loadingOverlay').style.display='flex';}
+    function hideLoading(){document.getElementById('loadingOverlay').style.display='none';}
+
+    async function init(){ await loadConfig(); await loadAllTables(); }
+
+    async function loadConfig(){
+        const cfg = await (await fetch('/config')).json();
+        AREAS=cfg.areas; ALL_TABLES=AREAS.flatMap(a=>a.tables); CURRENCY=cfg.currency; MENU=cfg.menu;
+        buildTables(); buildMenu();
+    }
+    function buildTables(){
+        let tabs='',grids='';
+        AREAS.forEach((a,idx)=>{
+            tabs+=`<button class="area-tab ${idx===0?'active':''}" id="areaTab_${a.id}" onclick="showArea('${a.id}',this)">${a.name}</button>`;
+            grids+=`<div class="tables area-grid" id="areaGrid_${a.id}" style="display:${idx===0?'flex':'none'};">`;
+            a.tables.forEach(n=>grids+=`<button class="table-btn" onclick="selectTable(${n})" id="t${n}">${n}</button>`);
+            grids+=`</div>`;
+        });
+        document.getElementById('areaTabs').innerHTML=tabs;
+        document.getElementById('tablesContainer').innerHTML=grids;
+    }
+    function showArea(id,btn){
+        document.querySelectorAll('.area-grid').forEach(g=>g.style.display='none');
+        document.querySelectorAll('.area-tab').forEach(t=>t.classList.remove('active'));
+        document.getElementById('areaGrid_'+id).style.display='flex';
+        btn.classList.add('active');
+    }
+    function buildMenu(){
+        const cats=document.getElementById('categoriesContainer'), menu=document.getElementById('menuContainer');
+        let cb='',sec='';
+        Object.entries(MENU).forEach(([cat,items])=>{
+            const id=cat.replace(/ /g,'_');
+            cb+=`<button class="cat-btn" onclick="showCategory('${id}',this)">${cat}</button>`;
+            sec+=`<div class="menu-grid" id="${id}" style="display:none;">`;
+            items.forEach(it=>{ const s=it.name.replace(/'/g,"\\'");
+                sec+=`<button class="menu-item-btn" onclick="addItem('${s}',${it.price})"><span class="item-name">${esc(it.name)}</span><span class="item-price">${it.price} ${CURRENCY}</span></button>`;});
+            sec+=`</div>`;
+        });
+        cats.innerHTML=cb; menu.innerHTML=sec;
+    }
+    function showCategory(id,btn){
+        document.querySelectorAll('.menu-grid').forEach(el=>el.style.display='none');
+        document.querySelectorAll('.cat-btn').forEach(el=>el.classList.remove('active'));
+        document.getElementById(id).style.display='grid'; btn.classList.add('active');
+    }
+
+    async function loadAllTables(){
+        try{
+            const data=await (await authFetch('/tables-status')).json();
+            ALL_TABLES.forEach(n=>{const e=document.getElementById('t'+n); if(e){e.classList.remove('red');e.classList.remove('pending');}});
+            (data.open_tables||[]).forEach(n=>{const e=document.getElementById('t'+n); if(e)e.classList.add('red');});
+            (data.pending_tables||[]).forEach(n=>{const e=document.getElementById('t'+n); if(e)e.classList.add('pending');});
+        }catch(e){}
+    }
+
+    let pendingItems = [];   // QR items awaiting accept (NOT in the order list)
+
+    async function selectTable(n){
+        currentTable=n;
+        document.querySelectorAll('.table-btn').forEach(b=>b.classList.remove('selected'));
+        document.getElementById('t'+n).classList.add('selected');
+        document.getElementById('selectedTable').innerText='Masa '+n;
+        cart=[]; pendingItems=[];
+        try{
+            const d=await (await authFetch('/table/'+n)).json();
+            if(d.status==='open'){
+                // Pending QR items stay OUT of the order list until accepted.
+                cart = d.items.filter(i=>i.item_status!=='pending').map(i=>({...i,isNew:false}));
+                pendingItems = d.items.filter(i=>i.item_status==='pending');
+            }
+        }catch(e){}
+        renderCart(); renderAcceptBar();
+    }
+
+    function renderAcceptBar(){
+        const bar=document.getElementById('acceptBar');
+        if(pendingItems.length>0){
+            const summary = pendingItems.map(i=>`${esc(i.product_name)}×${i.quantity}`).join(', ');
+            document.getElementById('acceptTxt').innerText =
+                `QR sipariş bekliyor: ${summary}`;
+            bar.style.display='flex';
+        } else bar.style.display='none';
+    }
+
+    async function acceptPending(){
+        showLoading();
+        try{
+            await authFetch('/accept-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_no:currentTable})});
+            await selectTable(currentTable);
+            showToast('Onaylandı ✓','success');
+        }catch(e){showToast('Hata!','error');} finally{hideLoading();}
+    }
+
+    async function refusePending(){
+        if(!confirm('Müşteri siparişini reddet?')) return;
+        showLoading();
+        try{
+            await authFetch('/refuse-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_no:currentTable})});
+            await selectTable(currentTable);
+            loadAllTables();
+            showToast('Reddedildi','success');
+        }catch(e){showToast('Hata!','error');} finally{hideLoading();}
+    }
+
+    // add item -> qty modal
+    function addItem(name,price){ pendingItem={name,price}; currentQty=1;
+        document.getElementById('qtyModalTitle').innerText=name;
+        document.getElementById('qtyDisplay').innerText=1;
+        document.getElementById('qtyModal').style.display='flex';
+    }
+    function changeQty(d){ currentQty=Math.max(1,currentQty+d); document.getElementById('qtyDisplay').innerText=currentQty; }
+    function closeQtyModal(){ document.getElementById('qtyModal').style.display='none'; pendingItem=null; }
+    function confirmQty(){
+        if(!currentTable){ showToast('Masa seçin!','error'); closeQtyModal(); return; }
+        cart.push({product_name:pendingItem.name, price:pendingItem.price, quantity:currentQty,
+                   created_at:new Date().toISOString(), isNew:true, item_status:'confirmed', paid_qty:0});
+        closeQtyModal(); renderCart();
+    }
+
+    function getTotal(){ return cart.reduce((s,i)=>s+i.quantity*i.price,0); }
+
+    function renderCart(){
+        const el=document.getElementById('cart');
+        if(cart.length===0){ el.innerHTML='<div class="cart-empty">Sipariş listesi boş</div>';
+            document.getElementById('total').innerText='0'; return; }
+        let html='<table class="cart-table"><tbody>';
+        cart.forEach((item,idx)=>{
+            const paidQ=item.paid_qty||0;
+            const isPending=item.item_status==='pending';
+            const badge = item.isNew ? '<span class="new-badge">YENİ</span>'
+                        : isPending ? '<span class="paid-badge" style="background:#fff3cd;color:#856404;">BEKLİYOR</span>' : '';
+            // Waiter may remove ONLY unsaved items (accountability).
+            const action = item.isNew ? `<button class="remove-btn" onclick="removeItem(${idx})">✕</button>` : '';
+            const qtyCell = item.isNew
+                ? `<input type="number" value="${item.quantity}" min="1" onchange="updateQty(${idx},this.value)">`
+                : `<span style="color:#888;">${item.quantity}</span>`;
+            html+=`<tr class="${item.isNew?'new-row':''}">
+                <td>${esc(item.product_name)}${badge}</td>
+                <td>${qtyCell}</td>
+                <td style="font-weight:bold;">${(item.quantity*item.price).toFixed(0)} ₺</td>
+                <td>${action}</td></tr>`;
+        });
+        html+='</tbody></table>';
+        el.innerHTML=html;
+        document.getElementById('total').innerText=getTotal().toFixed(0);
+    }
+    function updateQty(idx,val){ const q=parseInt(val,10); if(q>0){cart[idx].quantity=q; renderCart();} }
+    function removeItem(idx){ if(cart[idx].isNew){ cart.splice(idx,1); renderCart(); } }
+
+    async function saveOrder(){
+        if(!currentTable){ showToast('Masa seçin!','error'); return; }
+        const newItems=cart.filter(i=>i.isNew);
+        if(newItems.length===0){ showToast('Yeni ürün yok!','error'); return; }
+        showLoading();
+        try{
+            const res=await authFetch('/create-order',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({table_no:currentTable, items:newItems.map(i=>({product_name:i.product_name,quantity:i.quantity,price:i.price}))})});
+            if(!res.ok) throw new Error();
+            document.getElementById('t'+currentTable).classList.add('red');
+            await selectTable(currentTable);
+            showToast('Sipariş kaydedildi ✓','success');
+        }catch(e){ showToast('Kayıt hatası!','error'); } finally{ hideLoading(); }
+    }
+
+    // boot
+    document.getElementById('pinInput').addEventListener('keydown',e=>{ if(e.key==='Enter') checkPin(); });
+    if(AUTH_TOKEN){ document.getElementById('pinModal').style.display='none'; init(); }
+    setInterval(()=>{ if(AUTH_TOKEN) loadAllTables(); }, 20000);
+</script>
+</body>
+</html>

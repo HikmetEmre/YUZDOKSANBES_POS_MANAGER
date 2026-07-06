@@ -1,0 +1,908 @@
+/* ════════════════════════════════════════════════
+   TOUCH BASE LAYER  (added Step 1.5 — tablet/phone)
+   ════════════════════════════════════════════════ */
+
+:root {
+    --ink:    #1a1a1a;
+    --cream:  #F4EFE6;
+    --red:    #b30000;
+    --tap-min: 48px;        /* min touch target (Apple/Google guideline) */
+}
+
+html { -webkit-text-size-adjust: 100%; }   /* stop iOS auto-zooming text */
+
+/* Kill the grey flash + accidental text-selection when tapping buttons.
+   Staff are tapping fast; selecting text mid-order is pure friction. */
+button, .table-btn, .cat-btn, .menu-item-btn, .action-btn, .tab-btn {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;   /* removes the 300ms double-tap-zoom delay */
+}
+
+/* Smooth momentum scrolling inside the cart on iOS */
+.cart-body, .sales-table-wrap { -webkit-overflow-scrolling: touch; }
+
+
+        /* ── RESET & BASE ── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #F4EFE6;
+            color: #1a1a1a;
+            min-height: 100vh;
+        }
+
+        /* ── TOP NAV ── */
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: #1a1a1a;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            height: 56px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .topbar-title {
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .tab-group {
+            display: flex;
+            gap: 4px;
+        }
+
+        .tab-btn {
+            padding: 8px 20px;
+            border: none;
+            background: transparent;
+            color: #aaa;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: #F4EFE6;
+            color: #1a1a1a;
+        }
+
+        .tab-btn.logout-btn { color: #e57373; }
+        .tab-btn.logout-btn:hover { background: rgba(229,115,115,0.15); color: #ef5350; }
+
+        /* ── TABLES SECTION ── */
+        .tables-section {
+            padding: 20px 20px 8px;
+            text-align: center;
+        }
+
+        /* Area tabs: İç Mekan / Kış Bahçesi / Bahçe */
+        .area-tabs {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .area-tab {
+            padding: 10px 22px;
+            font-size: 14px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            border: 2px solid #1a1a1a;
+            border-radius: 24px;
+            background: #F4EFE6;
+            color: #1a1a1a;
+            cursor: pointer;
+            transition: all 0.18s;
+        }
+        .area-tab.active {
+            background: #1a1a1a;
+            color: #F4EFE6;
+        }
+        .area-tab:active { transform: scale(0.96); }
+
+        .tables {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .table-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: 2.5px solid #1a1a1a;
+            font-size: 20px;
+            font-weight: bold;
+            background: #F4EFE6;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .table-btn:hover { background: #e8e2d8; }
+
+        .table-btn.red {
+            background: #b30000;
+            color: white;
+            border-color: #b30000;
+            box-shadow: 0 2px 8px rgba(179,0,0,0.35);
+        }
+
+        .table-btn.selected {
+            outline: 3px solid #555;
+            outline-offset: 2px;
+        }
+
+        /* Table has unaccepted QR (customer) orders waiting — orange pulse ring */
+        .table-btn.pending {
+            border-color: #f9a825;
+            box-shadow: 0 0 0 3px rgba(249,168,37,0.5);
+        }
+
+        /* Bekleyen (pending) tab badge */
+        .pending-badge {
+            background: #f9a825; color: #1a1a1a; font-weight: bold;
+            font-size: 11px; border-radius: 10px; padding: 1px 7px; margin-left: 4px;
+        }
+        /* Pending order cards */
+        #pendingView { display: none; padding: 24px 16px 50px; max-width: 720px; margin: 0 auto; }
+        .pend-card {
+            background: #fff; border: 1.5px solid #ffe082; border-radius: 12px;
+            padding: 14px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+        .pend-head {
+            display: flex; justify-content: space-between; font-weight: bold;
+            font-size: 16px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #f0ece5;
+        }
+        .pend-item { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+        .pend-actions { display: flex; gap: 10px; margin-top: 10px; }
+        .pend-accept {
+            flex: 2; padding: 12px; border: none; border-radius: 8px;
+            background: #2e7d32; color: #fff; font-weight: bold; font-size: 15px; cursor: pointer;
+        }
+        .pend-accept:active { transform: scale(0.98); }
+        .pend-refuse {
+            flex: 1; padding: 12px; border: 2px solid #ef9a9a; border-radius: 8px;
+            background: #fff; color: #c62828; font-weight: bold; font-size: 15px; cursor: pointer;
+        }
+        .pend-refuse:active { transform: scale(0.98); background: #fff5f5; }
+
+        /* ── SELECTED TABLE BAR ── */
+        .selected-table-bar {
+            background: #1a1a1a;
+            color: white;
+            text-align: center;
+            padding: 8px;
+            font-size: 15px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            min-height: 38px;
+        }
+
+        /* ── CATEGORIES ── */
+        .categories {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px;
+            padding: 14px 16px;
+            background: #ede8df;
+            border-bottom: 1px solid #d5cfc5;
+        }
+
+        .cat-btn {
+            padding: 7px 13px;
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            border: 1.5px solid #1a1a1a;
+            background: #F4EFE6;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.15s;
+        }
+
+        .cat-btn:hover { background: #e0dbd1; }
+        .cat-btn.active { background: #1a1a1a; color: white; }
+
+        /* ── MENU GRID ── */
+        .menu-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            max-width: 960px;
+            margin: 14px auto;
+            padding: 0 14px;
+        }
+
+        .menu-item-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 16px 10px;
+            background: white;
+            border: 1.5px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            min-height: 72px;
+        }
+
+        .menu-item-btn:hover {
+            background: #f9f6f1;
+            border-color: #1a1a1a;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+
+        .item-name {
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            line-height: 1.3;
+        }
+
+        .item-price {
+            font-size: 13px;
+            font-weight: bold;
+            color: #b30000;
+        }
+
+        /* ── CART ── */
+        .cart-wrapper {
+            max-width: 960px;
+            margin: 16px auto 140px;
+            padding: 0 14px;
+        }
+
+        .cart {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .cart-header {
+            padding: 14px 20px;
+            border-bottom: 2px solid #f0ece5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .cart-header h3 {
+            font-size: 14px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            color: #555;
+        }
+
+        #orderTime {
+            font-size: 13px;
+            color: #888;
+        }
+
+        .cart-body {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .cart-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .cart-table th {
+            text-align: left;
+            padding: 10px 14px;
+            background: #f9f6f1;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            color: #888;
+            border-bottom: 1px solid #eee;
+            position: sticky;
+            top: 0;
+        }
+
+        .cart-table td {
+            padding: 9px 14px;
+            border-bottom: 1px solid #f0ece5;
+            vertical-align: middle;
+        }
+
+        .cart-table tr:last-child td { border-bottom: none; }
+        .cart-table tr:hover td { background: #fdfcfa; }
+        .cart-table tr.new-row td { background: #fffef5; }
+
+        .cart-table input[type=number] {
+            width: 52px;
+            padding: 4px 6px;
+            font-size: 14px;
+            border: 1.5px solid #ddd;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .remove-btn {
+            background: none;
+            border: none;
+            color: #b30000;
+            font-size: 15px;
+            cursor: pointer;
+            padding: 3px 7px;
+            border-radius: 4px;
+            transition: background 0.15s;
+        }
+        
+        .remove-btn:hover { background: #fff0f0; }
+
+        .sales-del-btn {
+            background: none;
+            border: none;
+            color: #b30000;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 3px 7px;
+            border-radius: 4px;
+            transition: background 0.15s;
+        }
+        .sales-del-btn:hover { background: #fff0f0; }
+  
+              
+        .new-badge {
+            display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 1px 5px;
+            border-radius: 3px;
+            margin-left: 5px;
+            letter-spacing: 0.3px;
+        }
+
+        /* Paid item styling (Step 2) */
+        .paid-badge {
+            display: inline-block;
+            background: #eceff1;
+            color: #607d8b;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 1px 5px;
+            border-radius: 3px;
+            margin-left: 5px;
+            letter-spacing: 0.3px;
+        }
+        .paid-row td { color: #aaa; background: #fafafa; }
+        .paid-row td:first-child { text-decoration: line-through; text-decoration-color: #ccc; }
+
+        /* ── SPLIT PAYMENT MODAL (quantity steppers) ── */
+        .split-box { max-width: 460px; width: 94%; }
+
+        .split-quick {
+            display: flex; gap: 8px; margin-bottom: 10px;
+        }
+        .split-quick button {
+            flex: 1; padding: 8px; font-size: 12px; font-weight: bold;
+            border: 1.5px solid #ddd; border-radius: 7px; background: white;
+            color: #555; cursor: pointer;
+        }
+        .split-quick button:active { background: #f0ece5; }
+
+        .split-items {
+            max-height: 40vh;
+            overflow-y: auto;
+            margin-bottom: 12px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+        }
+
+        .split-line {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-bottom: 1px solid #f0ece5;
+            transition: background 0.12s;
+        }
+        .split-line:last-child { border-bottom: none; }
+        .split-line.on { background: #f1f8e9; }
+
+        .split-line-info { flex: 1; display: flex; flex-direction: column; gap: 2px; text-align: left; min-width: 0; }
+        .split-name { font-weight: 600; font-size: 14px; }
+        .split-sub  { font-size: 11px; color: #999; }
+        .split-progress { color: #2e7d32; font-weight: bold; margin-left: 4px; }
+
+        .split-stepper {
+            display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+        }
+        .step-btn {
+            width: 36px; height: 36px;
+            border: 1.5px solid #ccc; border-radius: 8px;
+            background: white; font-size: 20px; font-weight: bold;
+            color: #333; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            line-height: 1;
+        }
+        .step-btn:active { background: #e8e8e8; transform: scale(0.92); }
+        .step-val {
+            min-width: 34px; text-align: center;
+            font-size: 17px; font-weight: bold; cursor: pointer;
+            padding: 4px 2px; border-radius: 6px;
+        }
+        .step-val:active { background: #e0e0e0; }
+
+        .split-line-amt {
+            min-width: 64px; text-align: right;
+            font-weight: bold; color: var(--red); font-size: 14px; flex-shrink: 0;
+        }
+
+        .split-total-row, .split-remaining-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 6px 4px; font-size: 15px;
+        }
+        .split-total-row { border-top: 2px solid #f0ece5; padding-top: 10px; }
+        .split-total-row b { font-size: 22px; }
+        .split-remaining-row { color: #888; font-size: 13px; margin-bottom: 12px; }
+        .split-remaining-row b { font-size: 15px; color: #555; }
+
+        .split-pay-row {
+            display: flex; gap: 10px; margin-bottom: 16px;
+        }
+        .split-pay-row label {
+            flex: 1; display: flex; flex-direction: column; gap: 6px;
+            font-size: 13px; font-weight: bold; color: #555; text-align: left;
+        }
+        .split-pay-row input {
+            padding: 12px;
+            font-size: 18px; font-weight: bold;
+            border: 2px solid #ddd; border-radius: 8px;
+            text-align: center; width: 100%;
+        }
+        .split-pay-row input[readonly] { background: #f5f5f5; color: #777; }
+
+        #splitConfirmBtn:disabled { cursor: not-allowed; }
+
+
+        .cart-empty {
+            text-align: center;
+            padding: 30px;
+            color: #bbb;
+            font-size: 14px;
+        }
+
+        .cart-footer {
+            padding: 14px 20px;
+            border-top: 2px solid #f0ece5;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 0;
+        }
+
+        .cart-footer-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            padding: 0 18px;
+        }
+
+        .cart-footer-divider {
+            width: 1px;
+            height: 36px;
+            background: #e8e2d6;
+        }
+
+        .total-label {
+            font-size: 11px;
+            color: #888;
+            letter-spacing: 0.8px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .total-amount {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1a1a1a;
+        }
+
+        .paid-amount      { color: #2e7d32; }   /* green  — money received  */
+        .remaining-amount { color: #b30000; }   /* red    — still owed      */
+
+        /* ── BOTTOM ACTIONS ── */
+        .bottom-actions {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1a1a1a;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            z-index: 90;
+            box-shadow: 0 -2px 12px rgba(0,0,0,0.25);
+        }
+
+        .action-btn {
+            min-width: 140px;
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: bold;
+            border: 2px solid #F4EFE6;
+            background: transparent;
+            color: #F4EFE6;
+            cursor: pointer;
+            border-radius: 8px;
+            letter-spacing: 0.5px;
+            transition: all 0.15s;
+        }
+
+        .action-btn:hover { background: rgba(244,239,230,0.1); }
+
+        .action-btn.save   { border-color: #81c784; color: #81c784; }
+        .action-btn.save:hover   { background: rgba(129,199,132,0.1); }
+
+        .action-btn.cancel { border-color: #ef9a9a; color: #ef9a9a; }
+        .action-btn.cancel:hover { background: rgba(239,154,154,0.1); }
+
+        .action-btn.cash   { border-color: #fff176; color: #fff176; }
+        .action-btn.cash:hover   { background: rgba(255,241,118,0.1); }
+
+        .action-btn.card   { border-color: #80deea; color: #80deea; }
+        .action-btn.card:hover   { background: rgba(128,222,234,0.1); }
+
+        .action-btn.split  { border-color: #ce93d8; color: #ce93d8; }
+        .action-btn.split:hover  { background: rgba(206,147,216,0.1); }
+
+        /* ── MODALS ── */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+
+        .modal-box {
+            background: #F4EFE6;
+            border-radius: 12px;
+            padding: 32px 28px;
+            width: 320px;
+            max-width: 90vw;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+
+        .modal-box h2 { font-size: 20px; margin-bottom: 6px; }
+        .modal-box h3 { font-size: 16px; margin-bottom: 14px; line-height: 1.4; }
+        .modal-box p  { font-size: 14px; color: #555; margin-bottom: 8px; }
+
+        .modal-box input[type=password] {
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 22px;
+            border: 2px solid #1a1a1a;
+            border-radius: 6px;
+            background: white;
+            text-align: center;
+            margin: 12px 0;
+            letter-spacing: 6px;
+        }
+
+        .modal-btn {
+            padding: 11px 24px;
+            font-size: 14px;
+            font-weight: bold;
+            border: 2px solid #1a1a1a;
+            background: #1a1a1a;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+
+        .modal-btn:hover { opacity: 0.82; }
+
+        .modal-btn.secondary {
+            background: #888;
+            border-color: #888;
+        }
+
+        .modal-btn-row {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 16px;
+        }
+
+        /* Qty controls */
+        .qty-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 18px 0;
+            border: 2px solid #1a1a1a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .qty-btn {
+            width: 52px;
+            height: 52px;
+            font-size: 24px;
+            font-weight: bold;
+            border: none;
+            background: #1a1a1a;
+            color: white;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            flex-shrink: 0;
+        }
+
+        .qty-btn:hover { opacity: 0.8; }
+
+        #qtyDisplay {
+            flex: 1;
+            font-size: 26px;
+            font-weight: bold;
+            text-align: center;
+            background: white;
+            padding: 10px 0;
+        }
+
+        #pinError { color: #b30000; font-size: 13px; margin-top: 4px; min-height: 18px; }
+
+        /* ── LOADING ── */
+        #loadingOverlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.3);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 300;
+        }
+
+        .spinner {
+            width: 44px;
+            height: 44px;
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── TOAST ── */
+        #toast {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%) translateY(16px);
+            background: #1a1a1a;
+            color: white;
+            padding: 11px 22px;
+            border-radius: 24px;
+            font-size: 14px;
+            font-weight: bold;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.28s;
+            z-index: 400;
+            white-space: nowrap;
+        }
+
+        #toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        #toast.success { background: #2e7d32; }
+        #toast.error   { background: #b30000; }
+
+        /* ── SALES VIEW ── */
+        #salesView {
+            display: none;
+            padding: 24px 20px 50px;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        .sales-title {
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            color: #999;
+            margin-bottom: 16px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .summary-card {
+            background: white;
+            border-radius: 10px;
+            padding: 18px 14px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .card-label {
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 1.5px;
+            color: #aaa;
+            margin-bottom: 10px;
+        }
+
+        .card-value {
+            font-size: 22px;
+            font-weight: bold;
+            color: #1a1a1a;
+        }
+
+        .card-value.green { color: #2e7d32; }
+        .card-value.blue  { color: #1565c0; }
+
+        .sales-table-wrap {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .sales-table-header {
+            padding: 14px 20px;
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            color: #555;
+            border-bottom: 2px solid #f0ece5;
+        }
+
+        .sales-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .sales-table th {
+            text-align: left;
+            padding: 10px 16px;
+            background: #f9f6f1;
+            font-size: 11px;
+            color: #aaa;
+            letter-spacing: 1px;
+        }
+
+        .sales-table td {
+            padding: 11px 16px;
+            border-bottom: 1px solid #f0ece5;
+        }
+
+        .sales-table tr:last-child td { border-bottom: none; }
+        .sales-table tr:hover td { background: #fdfcfa; }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 9px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .badge.cash { background: #fff9c4; color: #795548; }
+        .badge.card { background: #e3f2fd; color: #1565c0; }
+
+        /* ════════════════════════════════════════════════
+           RESPONSIVE + TOUCH  (density-first: fit more, stay tappable)
+           ════════════════════════════════════════════════ */
+
+        /* Hover effects ONLY on devices with a real pointer.
+           On touchscreens these cause "sticky hover" (the lift/shadow gets
+           stuck after a tap). Guarding them fixes that. */
+        @media (hover: none) {
+            .menu-item-btn:hover { transform: none; box-shadow: none; background: white; border-color: #ddd; }
+            .table-btn:hover     { background: var(--cream); }
+            .cat-btn:hover       { background: var(--cream); }
+        }
+
+        /* Give a clear PRESSED state instead — touch needs feedback on tap,
+           not on hover. */
+        .menu-item-btn:active { transform: scale(0.97); background: #f9f6f1; }
+        .table-btn:active     { transform: scale(0.95); }
+        .cat-btn:active       { transform: scale(0.96); }
+        .action-btn:active    { transform: scale(0.97); }
+
+        /* Auto-fit menu: as many columns as fit, each at least 150px.
+           More items per screen on tablets, graceful drop to 2 on phones —
+           no fixed column count to fight the viewport. */
+        .menu-grid {
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        }
+
+        /* ── PHONE (portrait, ≤600px) ── */
+        @media (max-width: 600px) {
+            .topbar { padding: 0 14px; height: 52px; }
+            .topbar-title { font-size: 14px; letter-spacing: 0.5px; }
+            .tab-btn { padding: 8px 14px; font-size: 13px; }
+
+            .tables-section { padding: 14px 12px 6px; }
+            .table-btn { width: 60px; height: 60px; font-size: 18px; }
+
+            /* 2 columns of items, still tall enough to tap safely */
+            .menu-grid { grid-template-columns: repeat(2, 1fr); gap: 7px; padding: 0 10px; }
+            .menu-item-btn { min-height: 64px; padding: 12px 8px; }
+            .item-name, .item-price { font-size: 12px; }
+
+            .cat-btn { padding: 9px 12px; font-size: 11px; }  /* taller = easier tap */
+
+            .cart-wrapper { padding: 0 10px; margin-bottom: 120px; }
+            .cart-body { max-height: 220px; }
+
+            .summary-grid { grid-template-columns: repeat(2, 1fr); }
+
+            /* Action bar: 5 buttons → 3 per row, compact but tappable */
+            .bottom-actions { padding: 8px 8px; gap: 6px; }
+            .action-btn {
+                min-width: 0;
+                flex: 1 1 calc(33.333% - 6px);
+                min-height: 46px;
+                padding: 10px 4px;
+                font-size: 12px;
+            }
+        }
+
+        /* ── PHONE LANDSCAPE (short height) ── */
+        @media (max-height: 450px) and (orientation: landscape) {
+            .topbar { height: 44px; }
+            .tables-section { padding: 8px 12px 4px; }
+            .table-btn { width: 50px; height: 50px; font-size: 16px; }
+            .cart-body { max-height: 140px; }
+            .bottom-actions { padding: 6px 10px; }
+            .action-btn { min-height: 42px; padding: 8px; }
+        }
+
+        /* ── TABLET (601–1024px): wider content, big comfortable targets ── */
+        @media (min-width: 601px) and (max-width: 1024px) {
+            .menu-grid { max-width: 100%; gap: 10px; padding: 0 18px; }
+            .menu-item-btn { min-height: 80px; }     /* roomy for finger taps */
+            .item-name { font-size: 14px; }
+            .item-price { font-size: 14px; }
+            .table-btn { width: 76px; height: 76px; font-size: 22px; }
+            .cat-btn { padding: 10px 16px; font-size: 12px; }
+            .cart-wrapper, .menu-grid { max-width: 920px; }
+            .action-btn { min-height: 52px; min-width: 120px; }
+            .cart-body { max-height: 40vh; }
+        }
+
+        /* Respect users who asked the OS to reduce motion */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { transition: none !important; animation: none !important; }
+        }

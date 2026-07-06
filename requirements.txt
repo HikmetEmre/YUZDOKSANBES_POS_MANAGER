@@ -1,0 +1,10 @@
+# YUZDOKSANBES POS — Python dependencies
+# Install with:  install.bat   (or:  pip install -r requirements.txt)
+# Versions are the known-good lower bounds this app was built/tested against.
+
+fastapi>=0.137,<1.0      # web framework (pulls in starlette)
+uvicorn>=0.49            # ASGI server that actually runs the app
+pydantic>=2.13,<3.0      # request validation (v2 API is required)
+fpdf2>=2.8               # PDF reports (imported as `fpdf`)
+qrcode>=8.0              # table QR codes
+pillow>=10.0             # image backend used by qrcode.make()
