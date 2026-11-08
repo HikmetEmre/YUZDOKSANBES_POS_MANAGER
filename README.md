@@ -502,7 +502,6 @@ All endpoints return JSON unless noted. 🔒 = staff token required, 👑 = `che
 
 ## Security
 
-- **No secrets in git.** Passwords come from `credentials.json` (written by the installer), then from environment variables. The signing key is generated per PC into `secret_key.txt`. All runtime data is listed in `.gitignore`.
 - **Signed role tokens** use HMAC-SHA256 over the role and expiry. The key includes a fingerprint of the current passwords, so a password change logs everyone out.
 - **Brute-force protection:** repeated wrong PINs from one device lock that device out for a time window.
 - **Prices are computed on the server.** Client-sent totals are ignored.
