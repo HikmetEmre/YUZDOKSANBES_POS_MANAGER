@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>YUZDOKSANBES — Garson</title>
-<link rel="stylesheet" href="/style.css">
+<title>YUZDOKSANBES — Barista</title>
+<link rel="stylesheet" href="/style.css?v=3">
 <style>
     /* Waiter-specific tweaks layered on the shared stylesheet */
     .role-badge { font-size:11px; background:#ce93d8; color:#1a1a1a; font-weight:bold;
@@ -22,8 +22,8 @@
     <div id="pinModal" class="modal-overlay">
         <div class="modal-box">
             <h2>YUZDOKSANBES</h2>
-            <p>Garson girişi</p>
-            <input type="password" id="pinInput" maxlength="8" placeholder="••••" autofocus>
+            <p>Barista girişi</p>
+            <input type="password" id="pinInput" maxlength="16" placeholder="Şifre" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus>
             <div id="pinError"></div>
             <button class="modal-btn" onclick="checkPin()" style="width:100%;margin-top:4px;">Giriş</button>
         </div>
@@ -49,7 +49,7 @@
     <div id="toast"></div>
 
     <div class="topbar">
-        <span class="topbar-title">GARSON <span class="role-badge">Sipariş</span></span>
+        <span class="topbar-title">BARİSTA <span class="role-badge">Sipariş</span></span>
         <button class="tab-btn logout-btn" onclick="logout()" style="float:right;" title="Çıkış">⎋ Çıkış</button>
     </div>
 
@@ -93,6 +93,9 @@
         </div>
     </div>
 
+<script src="/order_alerts.js?v=2"></script>
+<script src="/duration.js?v=2"></script>
+<script src="/cancel_dialog.js?v=1"></script>
 <script>
     // ===== auth =====
     let AUTH_TOKEN = sessionStorage.getItem('waiter_token') || null;
@@ -103,10 +106,20 @@
     }
     function authFetch(url, opts={}) {
         opts.headers = opts.headers || {};
-        if(AUTH_TOKEN) opts.headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
-        return fetch(url, opts);
+        const sent = AUTH_TOKEN;
+        if(sent) opts.headers['Authorization'] = 'Bearer ' + sent;
+        // 401 = session no longer valid (password changed / expired) → login again
+        return fetch(url, opts).then(res => { if(res.status === 401 && sent) { sessionExpired(); return new Promise(() => {}); } return res; });
+    }
+    let _expiring = false;
+    function sessionExpired(){
+        if(_expiring) return; _expiring = true;
+        sessionStorage.removeItem('waiter_token'); AUTH_TOKEN=null;
+        alert('Oturum sona erdi (şifre değişmiş olabilir). Lütfen yeniden giriş yapın.');
+        location.reload();
     }
     async function checkPin() {
+        OrderAlerts.unlockAudio();   // unlock the bell inside this tap, before any await
         const val = document.getElementById('pinInput').value;
         try {
             const res = await fetch('/auth', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pin:val})});
@@ -118,7 +131,7 @@
                 document.getElementById('pinModal').style.display = 'none';
                 init();
             } else {
-                document.getElementById('pinError').innerText = 'Hatalı PIN.';
+                document.getElementById('pinError').innerText = 'Hatalı şifre.';
                 document.getElementById('pinInput').value = '';
             }
         } catch(e) { document.getElementById('pinError').innerText = 'Sunucuya ulaşılamadı.'; }
@@ -129,19 +142,31 @@
     function esc(s){const m={"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};return String(s==null?"":s).replace(/[&<>"']/g,c=>m[c]);}
     let currentTable=null, cart=[], pendingItem=null, currentQty=1;
 
+    // The shared style.css keeps #toast at opacity:0 until it has the 'show'
+    // class (same as app.js). Without it every message here was invisible, so
+    // e.g. "Yeni ürün yok!" made the Kaydet button look like it did nothing.
+    let toastTimer = null;
     function showToast(msg, type) {
         const t=document.getElementById('toast'); t.innerText=msg;
-        t.className = type||''; t.style.display='block';
-        setTimeout(()=>t.style.display='none', 2000);
+        t.className = 'show ' + (type||'');
+        clearTimeout(toastTimer);              // a newer message gets its full time
+        toastTimer = setTimeout(()=>{ t.className=''; }, 2600);
     }
     function showLoading(){document.getElementById('loadingOverlay').style.display='flex';}
     function hideLoading(){document.getElementById('loadingOverlay').style.display='none';}
 
-    async function init(){ await loadConfig(); await loadAllTables(); }
+    async function init(){
+        await loadConfig(); await loadAllTables();
+        // Shared new-QR-order alert (same as the POS): bell + vibrate + OS
+        // notification, then refresh tables so the area signal lights up.
+        OrderAlerts.start({ authFetch, isLoggedIn: ()=>!!AUTH_TOKEN,
+            onNewOrder: ()=>{ showToast('🔔 Yeni sipariş geldi!','success'); loadAllTables(); } });
+    }
 
     async function loadConfig(){
         const cfg = await (await fetch('/config')).json();
-        AREAS=cfg.areas; ALL_TABLES=AREAS.flatMap(a=>a.tables); CURRENCY=cfg.currency; MENU=cfg.menu;
+        TableNames.set(cfg.table_names); AREAS=cfg.areas; ALL_TABLES=AREAS.flatMap(a=>a.tables); CURRENCY=cfg.currency; MENU=cfg.menu;
+        CancelDialog.init(cfg);   // cancel reasons
         buildTables(); buildMenu();
     }
     function buildTables(){
@@ -149,7 +174,7 @@
         AREAS.forEach((a,idx)=>{
             tabs+=`<button class="area-tab ${idx===0?'active':''}" id="areaTab_${a.id}" onclick="showArea('${a.id}',this)">${a.name}</button>`;
             grids+=`<div class="tables area-grid" id="areaGrid_${a.id}" style="display:${idx===0?'flex':'none'};">`;
-            a.tables.forEach(n=>grids+=`<button class="table-btn" onclick="selectTable(${n})" id="t${n}">${n}</button>`);
+            a.tables.forEach(n=>grids+=`<button class="table-btn${TableNames.isNamed(n)?' t-named':''}" onclick="selectTable(${n})" id="t${n}" title="${esc(TableNames.label(n))}">${esc(TableNames.short(n))}</button>`);
             grids+=`</div>`;
         });
         document.getElementById('areaTabs').innerHTML=tabs;
@@ -186,7 +211,18 @@
             ALL_TABLES.forEach(n=>{const e=document.getElementById('t'+n); if(e){e.classList.remove('red');e.classList.remove('pending');}});
             (data.open_tables||[]).forEach(n=>{const e=document.getElementById('t'+n); if(e)e.classList.add('red');});
             (data.pending_tables||[]).forEach(n=>{const e=document.getElementById('t'+n); if(e)e.classList.add('pending');});
+            markAreaAlerts(data.pending_tables||[]);
+            Duration.paintButtons(data.open_seconds, ALL_TABLES);   // "32 dk" under busy tables
         }catch(e){}
+    }
+    // Light up the area tab (İç Mekan / Kış Bahçesi / Bahçe …) that holds a
+    // table with a new QR order; clears once the order is accepted/refused.
+    function markAreaAlerts(pendingTables){
+        const p = new Set(pendingTables.map(String));
+        AREAS.forEach(a=>{
+            const tab = document.getElementById('areaTab_'+a.id);
+            if(tab) tab.classList.toggle('alert', a.tables.some(n=>p.has(String(n))));
+        });
     }
 
     let pendingItems = [];   // QR items awaiting accept (NOT in the order list)
@@ -195,11 +231,13 @@
         currentTable=n;
         document.querySelectorAll('.table-btn').forEach(b=>b.classList.remove('selected'));
         document.getElementById('t'+n).classList.add('selected');
-        document.getElementById('selectedTable').innerText='Masa '+n;
+        document.getElementById('selectedTable').innerText=TableNames.label(n);
         cart=[]; pendingItems=[];
+        Duration.clearHeader(document.getElementById('orderTime'));   // empty table → no duration
         try{
             const d=await (await authFetch('/table/'+n)).json();
             if(d.status==='open'){
+                Duration.showHeader(document.getElementById('orderTime'), d.open_seconds, d.created_at);
                 // Pending QR items stay OUT of the order list until accepted.
                 cart = d.items.filter(i=>i.item_status!=='pending').map(i=>({...i,isNew:false}));
                 pendingItems = d.items.filter(i=>i.item_status==='pending');
@@ -221,8 +259,10 @@
     async function acceptPending(){
         showLoading();
         try{
-            await authFetch('/accept-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_no:currentTable})});
+            const res=await authFetch('/accept-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_no:currentTable})});
+            if(!res.ok) throw new Error();
             await selectTable(currentTable);
+            loadAllTables();   // clear the table's pending ring + area signal now
             showToast('Onaylandı ✓','success');
         }catch(e){showToast('Hata!','error');} finally{hideLoading();}
     }
@@ -231,7 +271,8 @@
         if(!confirm('Müşteri siparişini reddet?')) return;
         showLoading();
         try{
-            await authFetch('/refuse-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_no:currentTable})});
+            const res=await authFetch('/refuse-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_no:currentTable})});
+            if(!res.ok) throw new Error();
             await selectTable(currentTable);
             loadAllTables();
             showToast('Reddedildi','success');
@@ -265,8 +306,10 @@
             const isPending=item.item_status==='pending';
             const badge = item.isNew ? '<span class="new-badge">YENİ</span>'
                         : isPending ? '<span class="paid-badge" style="background:#fff3cd;color:#856404;">BEKLİYOR</span>' : '';
-            // Waiter may remove ONLY unsaved items (accountability).
-            const action = item.isNew ? `<button class="remove-btn" onclick="removeItem(${idx})">✕</button>` : '';
+            // ✕ on unsaved lines (local) AND saved lines (server, asks first —
+            // customer changed their mind / wrong item). Lines with paid units
+            // can't be removed.
+            const action = (item.isNew || paidQ === 0) ? `<button class="remove-btn" onclick="removeItem(${idx})">✕</button>` : '';
             const qtyCell = item.isNew
                 ? `<input type="number" value="${item.quantity}" min="1" onchange="updateQty(${idx},this.value)">`
                 : `<span style="color:#888;">${item.quantity}</span>`;
@@ -281,12 +324,40 @@
         document.getElementById('total').innerText=getTotal().toFixed(0);
     }
     function updateQty(idx,val){ const q=parseInt(val,10); if(q>0){cart[idx].quantity=q; renderCart();} }
-    function removeItem(idx){ if(cart[idx].isNew){ cart.splice(idx,1); renderCart(); } }
+    async function removeItem(idx){
+        const item = cart[idx];
+        if(item.isNew){ cart.splice(idx,1); renderCart(); return; }   // not saved yet → no reason needed
+        // Saved line: ask WHY (Yanlış Ürün / Soğuk/Eksik / Diğer) and how many.
+        const choice = await CancelDialog.open({
+            title: `${item.product_name} ×${item.quantity} — ${TableNames.label(currentTable)}`,
+            maxQty: item.quantity
+        });
+        if(!choice) return;                                           // Vazgeç
+        showLoading();
+        try{
+            const res=await authFetch('/remove-item',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({table_no:currentTable, item_id:item.id,
+                                     qty:choice.qty, reason:choice.reason, note:choice.note})});
+            if(!res.ok){
+                const d=await res.json().catch(()=>({}));
+                showToast(d.detail||'İptal edilemedi!','error'); return;
+            }
+            const unsaved = cart.filter(i=>i.isNew);   // keep anything not yet saved
+            await selectTable(currentTable);
+            cart.push(...unsaved); renderCart();
+            loadAllTables();                          // table turns free if now empty
+            showToast(choice.qty < item.quantity ? `${choice.qty} adet iptal edildi` : 'Ürün iptal edildi','success');
+        }catch(e){ showToast('İptal edilemedi!','error'); } finally{ hideLoading(); }
+    }
 
     async function saveOrder(){
         if(!currentTable){ showToast('Masa seçin!','error'); return; }
         const newItems=cart.filter(i=>i.isNew);
-        if(newItems.length===0){ showToast('Yeni ürün yok!','error'); return; }
+        if(newItems.length===0){
+            // QR orders are saved by "✓ Onayla", not by this button.
+            showToast(pendingItems.length ? 'QR siparişi için ✓ Onayla’ya basın' : 'Yeni ürün yok!','error');
+            return;
+        }
         showLoading();
         try{
             const res=await authFetch('/create-order',{method:'POST',headers:{'Content-Type':'application/json'},

@@ -9,7 +9,8 @@ setlocal
 echo ============================================================
 echo  Set the POS login PINs
 echo ============================================================
-echo Use 6-8 digit numbers. Give the Checkout PIN to the desk only.
+echo Use 4-16 English letters and/or digits (case-sensitive), e.g. kasa2026.
+echo No Turkish letters or spaces. Give the Checkout password to the desk only.
 echo.
 
 set /p CPIN="Checkout (admin) PIN: "

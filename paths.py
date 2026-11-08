@@ -5,8 +5,9 @@
 #   (b) a frozen PyInstaller .exe shipped to the café.
 #
 # Why this matters (see ARCHITECTURE.md §1 packaging notes):
-#   - WRITABLE files (pos.db, backups/) must live NEXT TO the exe — you
-#     cannot write inside a frozen bundle, and data must survive app updates.
+#   - WRITABLE files (pos.db, backups/, logs/…) live in %ProgramData%\YUZDOKSANBES
+#     for the installed exe — you cannot write inside a frozen bundle or under
+#     Program Files, and data must survive app updates and uninstalls.
 #   - BUNDLED read-only files (static/) are unpacked by PyInstaller into a
 #     temporary folder at runtime (sys._MEIPASS); we must read them from there.
 #
@@ -15,6 +16,7 @@
 # =====================================================
 
 from pathlib import Path
+import os
 import sys
 
 
@@ -25,19 +27,28 @@ def _frozen() -> bool:
 
 def app_dir() -> Path:
     """
-    Folder for WRITABLE app data (database, backups).
-      - script mode: the project folder (where the .py files live)
-      - frozen exe:  the folder CONTAINING the .exe
+    Folder for WRITABLE app data (database, backups, logs, secret key, PINs).
+      - POS_DATA_DIR env var, if set (used by tests / special setups)
+      - script mode: the project folder (where the .py files live) — as before
+      - frozen exe:  %ProgramData%\\YUZDOKSANBES. The installed program lives in
+        C:\\Program Files, which normal users can't write to, and data must
+        survive upgrades/uninstalls — so it lives apart from the program.
     """
-    if _frozen():
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    override = os.environ.get("POS_DATA_DIR")
+    if override:
+        d = Path(override)
+    elif _frozen():
+        d = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "YUZDOKSANBES"
+    else:
+        return Path(__file__).resolve().parent
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def data_path(name_or_path: str) -> str:
     """
     Resolve a writable file/folder path.
-      - Absolute paths (e.g. a Google Drive folder 'G:/My Drive/pos-backups')
+      - Absolute paths (e.g. a Google Drive folder 'G:/Drive'ım/pos-backups')
         are returned unchanged — the user chose them deliberately.
       - Relative names (e.g. 'pos.db', 'backups') are placed next to the app.
     """

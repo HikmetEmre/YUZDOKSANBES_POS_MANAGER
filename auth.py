@@ -37,8 +37,16 @@ TOKEN_TTL_HOURS = 24
 ROLE_RANK = {"customer": 0, "waiter": 1, "checkout": 2}
 
 
+def _signing_key() -> bytes:
+    """SECRET_KEY + a fingerprint of the CURRENT passwords. Changing a password
+    (e.g. reinstalling with new ones) therefore logs out every device that
+    signed in with the old ones, instead of leaving them in for up to 24 h."""
+    pins = hashlib.sha256(f"{config.CHECKOUT_PIN}|{config.WAITER_PIN}".encode()).hexdigest()
+    return (config.SECRET_KEY + ":" + pins).encode()
+
+
 def _sign(payload_b64: str) -> str:
-    sig = hmac.new(config.SECRET_KEY.encode(), payload_b64.encode(), hashlib.sha256).digest()
+    sig = hmac.new(_signing_key(), payload_b64.encode(), hashlib.sha256).digest()
     return base64.urlsafe_b64encode(sig).decode().rstrip("=")
 
 

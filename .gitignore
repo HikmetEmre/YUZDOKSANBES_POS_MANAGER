@@ -1,9 +1,13 @@
 # ── Secrets & runtime data — NEVER commit ──
 secret_key.txt
+credentials.json
 pos.db
 pos.db-wal
 pos.db-shm
 backups/
+# old saved report PDFs (business data) — the app no longer writes here
+reports/
+logs/
 
 # ── Python ──
 __pycache__/
@@ -14,12 +18,19 @@ __pycache__/
 .venv/
 venv/
 
-# ── PyInstaller build output ──
+# ── PyInstaller / installer build output ──
 build/
 dist/
 *.spec
+# …but the installer's build recipe IS source and must be committed
+!yuzdoksanbes_setup/yuzdoksanbes_pos.spec
+yuzdoksanbes_setup/.build-venv/
+yuzdoksanbes_setup/output/
 
 # ── OS / editor cruft ──
 Thumbs.db
 .DS_Store
 *.swp
+
+# ── Local tooling ──
+.claude/

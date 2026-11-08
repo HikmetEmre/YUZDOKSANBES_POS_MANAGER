@@ -125,13 +125,32 @@ class _Report(FPDF):
         self.ln()
 
 
+# ---------- SHARED SECTIONS ----------
+
+def _manual_income_section(pdf, manual_incomes) -> None:
+    """'Ek Gelirler' table (description + amount); skipped when empty.
+    Used by both the daily and the monthly report."""
+    if not manual_incomes:
+        return
+    pdf.section("Ek Gelirler")
+    pdf.table_header(["Açıklama", "Tutar"], [140, 50])
+    for mi in manual_incomes:
+        pdf.table_row([mi["description"], f'{mi["amount"]:.0f} {CURRENCY}'],
+                      [140, 50], ["L", "R"])
+
+
 # ---------- DAILY ----------
 
-def build_daily_pdf(date_str, sold_items, totals) -> bytes:
+def build_daily_pdf(date_str, sold_items, totals,
+                    expenses=None, manual_incomes=None, tasks=None) -> bytes:
     """
-    date_str   : 'YYYY-MM-DD'
-    sold_items : [{name, qty, total}]
-    totals     : {cash, card, grand, count}
+    date_str       : 'YYYY-MM-DD'
+    sold_items     : [{name, qty, total}]
+    totals         : {cash, card, count, sales_total, manual,
+                      income_total, expense_total, net}
+    expenses       : [{description, amount}]     (optional — that day's Gider)
+    manual_incomes : [{description, amount}]     (optional — that day's Ek Gelir)
+    tasks          : [{title, category, done}]   (optional — that day's Görevler)
     """
     d = datetime.strptime(date_str, "%Y-%m-%d")
     pretty = d.strftime("%d-%m-%Y")
@@ -139,6 +158,7 @@ def build_daily_pdf(date_str, sold_items, totals) -> bytes:
     pdf.add_page()
     pdf.header_block(f"Günlük Rapor — {pretty}")
 
+    # ---- Sold items ----
     pdf.section("Satılan Ürünler")
     if sold_items:
         pdf.table_header(["Ürün", "Adet", "Tutar"], [110, 30, 50])
@@ -149,11 +169,48 @@ def build_daily_pdf(date_str, sold_items, totals) -> bytes:
         pdf.set_font(pdf.base, "", 11)
         pdf.cell(0, 7, pdf._t("Bu gün satış yok."), new_x="LMARGIN", new_y="NEXT")
 
-    pdf.section("Ödeme Özeti")
+    # ---- Income summary ----
+    manual_total = totals.get("manual", 0)
+    pdf.section("Gelir Özeti")
     pdf.kv("Nakit", f'{totals["cash"]:.0f} {CURRENCY}')
     pdf.kv("Kart",  f'{totals["card"]:.0f} {CURRENCY}')
+    pdf.kv("Satış Cirosu", f'{totals["sales_total"]:.0f} {CURRENCY}')
     pdf.kv("Satış adedi", f'{totals["count"]}')
-    pdf.kv("TOPLAM CİRO", f'{totals["grand"]:.0f} {CURRENCY}', bold=True)
+    if manual_total:
+        pdf.kv("Ek Gelir", f'{manual_total:.0f} {CURRENCY}')
+    pdf.kv("TOPLAM GELİR", f'{totals["income_total"]:.0f} {CURRENCY}', bold=True)
+
+    # ---- Manual income list (Ek Gelir) ----
+    _manual_income_section(pdf, manual_incomes)
+
+    # ---- Expenses (Gider) ----
+    pdf.section("Giderler")
+    if expenses:
+        pdf.table_header(["Açıklama", "Tutar"], [140, 50])
+        for e in expenses:
+            pdf.table_row([e["description"], f'{e["amount"]:.0f} {CURRENCY}'],
+                          [140, 50], ["L", "R"])
+        pdf.kv("TOPLAM GİDER", f'{totals["expense_total"]:.0f} {CURRENCY}', bold=True)
+    else:
+        pdf.set_font(pdf.base, "", 11)
+        pdf.set_text_color(150, 150, 150)
+        pdf.cell(0, 7, pdf._t("Bu gün gider kaydı yok."), new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(26, 26, 26)
+
+    # ---- Net profit ----
+    pdf.section("Net Kâr")
+    pdf.kv("NET KÂR (Gelir - Gider)", f'{totals["net"]:.0f} {CURRENCY}', bold=True)
+
+    # ---- Tasks of the day (Görevler) ----
+    pdf.section("Günün Görevleri")
+    if tasks:
+        pdf.table_header(["İş", "Kategori", "Durum"], [110, 45, 35])
+        for t in tasks:
+            durum = "Tamam" if t.get("done") else "Bekliyor"
+            pdf.table_row([t["title"], t.get("category", ""), durum], [110, 45, 35], ["L", "C", "C"])
+    else:
+        pdf.set_font(pdf.base, "", 11)
+        pdf.cell(0, 7, pdf._t("Bu güne görev yok."), new_x="LMARGIN", new_y="NEXT")
 
     pdf.ln(8)
     pdf.set_font(pdf.base, "", 8)
@@ -165,12 +222,14 @@ def build_daily_pdf(date_str, sold_items, totals) -> bytes:
 
 # ---------- MONTHLY ----------
 
-def build_monthly_pdf(year, month, daily_rows, totals, done_tasks, expenses=None) -> bytes:
+def build_monthly_pdf(year, month, daily_rows, totals, done_tasks,
+                      expenses=None, manual_incomes=None) -> bytes:
     """
-    daily_rows : [{date, total}]   per-day revenue
-    totals     : {cash, card, grand, count}
-    done_tasks : [{date, title, category}]
-    expenses   : None for now (slot reserved until Expenses module exists)
+    daily_rows     : [{date, total}]   per-day revenue
+    totals         : {cash, card, grand, count, manual}
+    done_tasks     : [{date, title, category}]
+    expenses       : [{description, amount}]   (optional)
+    manual_incomes : [{description, amount}]   (optional — the month's Ek Gelir)
     """
     TR_MONTHS = ["", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
                  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
@@ -185,6 +244,9 @@ def build_monthly_pdf(year, month, daily_rows, totals, done_tasks, expenses=None
         pdf.kv("Ek Gelir", f'{totals["manual"]:.0f} {CURRENCY}')
     pdf.kv("Satış adedi", f'{totals["count"]}')
     pdf.kv("TOPLAM GELİR", f'{totals["grand"]:.0f} {CURRENCY}', bold=True)
+
+    # Itemized manual income (Ek Gelir) for the month.
+    _manual_income_section(pdf, manual_incomes)
 
     pdf.section("Günlük Döküm")
     if daily_rows:
@@ -224,6 +286,101 @@ def build_monthly_pdf(year, month, daily_rows, totals, done_tasks, expenses=None
     else:
         pdf.set_font(pdf.base, "", 11)
         pdf.cell(0, 7, pdf._t("Tamamlanan iş yok."), new_x="LMARGIN", new_y="NEXT")
+
+    pdf.ln(8)
+    pdf.set_font(pdf.base, "", 8)
+    pdf.set_text_color(140, 140, 140)
+    pdf.cell(0, 5, pdf._t(f'Oluşturuldu: {datetime.now().strftime("%d-%m-%Y %H:%M")}'),
+             align="C", new_x="LMARGIN", new_y="NEXT")
+    return bytes(pdf.output())
+
+
+# ---------- DATE RANGE (any period, e.g. 07-09 → 15-11) ----------
+
+def _empty_note(pdf, text):
+    pdf.set_font(pdf.base, "", 11)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(0, 7, pdf._t(text), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(26, 26, 26)
+
+
+def build_range_pdf(start_str, end_str, sold_items, daily_rows, totals,
+                    expenses=None, manual_incomes=None, done_tasks=None) -> bytes:
+    """
+    start_str/end_str : 'YYYY-MM-DD' (inclusive)
+    sold_items        : [{name, qty, total}]       products sold in the period
+    daily_rows        : [{date, total, count}]     days that had sales
+    totals            : {cash, card, count, sales_total, manual,
+                         income_total, expense_total, net}
+    expenses          : [{description, amount}]    (period's Gider)
+    manual_incomes    : [{description, amount}]    (period's Ek Gelir)
+    done_tasks        : [{date, title, category}]  completed calendar tasks
+    """
+    s = datetime.strptime(start_str, "%Y-%m-%d")
+    e = datetime.strptime(end_str, "%Y-%m-%d")
+    days = (e - s).days + 1
+    pdf = _Report()
+    pdf.add_page()
+    pdf.header_block(f"Dönem Raporu — {s:%d-%m-%Y} – {e:%d-%m-%Y} ({days} gün)")
+
+    # ---- Income summary ----
+    pdf.section("Gelir Özeti")
+    pdf.kv("Nakit", f'{totals["cash"]:.0f} {CURRENCY}')
+    pdf.kv("Kart",  f'{totals["card"]:.0f} {CURRENCY}')
+    pdf.kv("Satış Cirosu", f'{totals["sales_total"]:.0f} {CURRENCY}')
+    pdf.kv("Satış adedi", f'{totals["count"]}')
+    if totals.get("manual", 0):
+        pdf.kv("Ek Gelir", f'{totals["manual"]:.0f} {CURRENCY}')
+    pdf.kv("TOPLAM GELİR", f'{totals["income_total"]:.0f} {CURRENCY}', bold=True)
+
+    # ---- Expenses ----
+    pdf.section("Giderler")
+    if expenses:
+        pdf.table_header(["Açıklama", "Tutar"], [140, 50])
+        for x in expenses:
+            pdf.table_row([x["description"], f'{x["amount"]:.0f} {CURRENCY}'], [140, 50], ["L", "R"])
+        pdf.kv("TOPLAM GİDER", f'{totals["expense_total"]:.0f} {CURRENCY}', bold=True)
+    else:
+        _empty_note(pdf, "Bu dönemde gider kaydı yok.")
+
+    # ---- Net ----
+    pdf.section("Net Kâr")
+    pdf.kv("NET KÂR (Gelir - Gider)", f'{totals["net"]:.0f} {CURRENCY}', bold=True)
+
+    # ---- Products sold ----
+    pdf.section("Satılan Ürünler")
+    if sold_items:
+        pdf.table_header(["Ürün", "Adet", "Tutar"], [110, 30, 50])
+        for it in sold_items:
+            pdf.table_row([it["name"], f'{it["qty"]:g}', f'{it["total"]:.0f} {CURRENCY}'],
+                          [110, 30, 50], ["L", "C", "R"])
+    else:
+        _empty_note(pdf, "Bu dönemde satış yok.")
+
+    # ---- Per-day breakdown (only days with sales) ----
+    pdf.section("Günlük Döküm")
+    if daily_rows:
+        pdf.table_header(["Tarih", "Satış", "Ciro"], [60, 40, 60])
+        for r in daily_rows:
+            dd = datetime.strptime(r["date"], "%Y-%m-%d").strftime("%d-%m-%Y")
+            pdf.table_row([dd, f'{r["count"]}', f'{r["total"]:.0f} {CURRENCY}'], [60, 40, 60], ["L", "C", "R"])
+        pdf.table_row(["TOPLAM", f'{totals["count"]}', f'{totals["sales_total"]:.0f} {CURRENCY}'],
+                      [60, 40, 60], ["L", "C", "R"])
+    else:
+        _empty_note(pdf, "Bu dönemde satış yok.")
+
+    # ---- Manual income ----
+    _manual_income_section(pdf, manual_incomes)
+
+    # ---- Completed tasks ----
+    pdf.section("Tamamlanan İşler (Takvim)")
+    if done_tasks:
+        pdf.table_header(["Tarih", "İş", "Kategori"], [40, 100, 50])
+        for t in done_tasks:
+            dd = datetime.strptime(t["date"], "%Y-%m-%d").strftime("%d-%m-%Y")
+            pdf.table_row([dd, t["title"], t["category"]], [40, 100, 50], ["L", "L", "C"])
+    else:
+        _empty_note(pdf, "Bu dönemde tamamlanan iş yok.")
 
     pdf.ln(8)
     pdf.set_font(pdf.base, "", 8)

@@ -112,6 +112,22 @@ button, .table-btn, .cat-btn, .menu-item-btn, .action-btn, .tab-btn {
         }
         .area-tab:active { transform: scale(0.96); }
 
+        /* Area has a table with a new (unaccepted) QR order — red pulsing
+           signal so staff see WHICH area to go to (e.g. table 51 → Arka Bahçe).
+           Stays red even while that area's tab is the active one. */
+        .area-tab.alert,
+        .area-tab.alert.active {
+            background: #b30000;
+            color: #fff;
+            border-color: #b30000;
+            animation: areaPulse 1.2s ease-in-out infinite;
+        }
+        .area-tab.alert::before { content: "🔔 "; }
+        @keyframes areaPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(179,0,0,0.55); }
+            50%      { box-shadow: 0 0 0 8px rgba(179,0,0,0); }
+        }
+
         .tables {
             display: flex;
             flex-wrap: wrap;
@@ -294,6 +310,39 @@ button, .table-btn, .cat-btn, .menu-item-btn, .action-btn, .tab-btn {
         #orderTime {
             font-size: 13px;
             color: #888;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        /* Open-duration under an occupied table's number ("32 dk", "1 sa 7 dk").
+           Fits inside the 70 px round button on red and orange-ring buttons. */
+        .table-btn .t-dur {
+            display: block;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+            margin-top: 2px;
+            letter-spacing: 0;
+            white-space: nowrap;
+            opacity: 0.92;
+        }
+
+        /* A table with a TEXT name ("Toplantı Masası", Ayarlar → Masalar): a pill
+           instead of a circle, same height, name wraps onto up to 2 lines. */
+        .table-btn.t-named {
+            width: auto;
+            min-width: 70px;
+            max-width: 150px;
+            padding: 4px 12px;
+            border-radius: 35px;
+            font-size: 13px;
+            line-height: 1.15;
+            white-space: normal;
+            overflow: hidden;
+            overflow-wrap: anywhere;
+        }
+        @media (max-width: 600px) {
+            .table-btn.t-named { min-width: 60px; max-width: 130px; border-radius: 30px; font-size: 12px; }
         }
 
         .cart-body {
@@ -635,6 +684,42 @@ button, .table-btn, .cat-btn, .menu-item-btn, .action-btn, .tab-btn {
             justify-content: center;
             margin-top: 16px;
         }
+
+        /* ── Cancel-with-reason dialog (cancel_dialog.js; POS + waiter) ── */
+        #cancelModal { z-index: 250; }
+        .cancel-box { width: 360px; text-align: left; }
+        .cancel-box h3 { text-align: center; }
+        .cx-sub { text-align: center; }
+        .cx-reasons { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 10px; }
+        .cx-reason {
+            padding: 13px 14px; font-size: 15px; font-weight: bold; text-align: left;
+            border: 2px solid #ddd; background: #fff; color: #1a1a1a; border-radius: 10px; cursor: pointer;
+        }
+        .cx-reason.on { border-color: #b30000; background: #fff1f1; color: #b30000; }
+        .cx-note {
+            width: 100%; padding: 11px 12px; font-size: 14px; border: 2px solid #b30000;
+            border-radius: 10px; margin-bottom: 10px; box-sizing: border-box;
+        }
+        .cx-qty { display: flex; align-items: center; gap: 10px; justify-content: center;
+                  font-size: 14px; font-weight: 600; margin: 4px 0 6px; flex-wrap: wrap; }
+        .cx-stepper { display: flex; align-items: center; gap: 6px; }
+        .cx-stepper button { width: 38px; height: 38px; font-size: 20px; font-weight: bold;
+                             border: 2px solid #1a1a1a; background: #fff; border-radius: 50%; cursor: pointer; }
+        .cx-stepper button:disabled { opacity: .3; cursor: default; }
+        .cx-stepper span { min-width: 28px; text-align: center; font-size: 20px; font-weight: bold; }
+        .cx-of { color: #888; }
+        .cx-error { color: #b30000; font-size: 13px; min-height: 16px; text-align: center; }
+        .modal-btn.cx-confirm { background: #b30000; border-color: #b30000; }
+        .modal-btn.cx-confirm:disabled { opacity: .4; cursor: default; }
+
+        /* ── POS "İptaller" tab ── */
+        #cancelView { display: none; padding: 24px 20px 50px; max-width: 1100px; margin: 0 auto; }
+        .cx-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+        .cx-toolbar input { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
+        .cx-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+        .cx-chip { background: #fff; border: 1.5px solid #e0dbd2; border-radius: 20px; padding: 6px 12px;
+                   font-size: 13px; font-weight: 600; }
+        .cx-chip b { color: #b30000; }
 
         /* Qty controls */
         .qty-controls {

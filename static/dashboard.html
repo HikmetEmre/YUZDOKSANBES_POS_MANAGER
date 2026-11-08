@@ -30,6 +30,8 @@
     .content { flex:1; padding:24px 28px; overflow-y:auto; }
     .page-title { font-size:22px; font-weight:bold; margin-bottom:4px; }
     .page-sub { color:var(--muted); font-size:13px; margin-bottom:22px; }
+    .home-clock { font-size:22px; font-weight:bold; color:#000; margin-bottom:4px;
+                  font-variant-numeric:tabular-nums; white-space:nowrap; }
 
     /* HOME: two columns */
     .home-grid { display:grid; grid-template-columns:1fr 1.1fr; gap:22px; }
@@ -81,6 +83,12 @@
                      padding:2px 8px; border-radius:10px; margin-left:8px; }
     .stock-qty { font-weight:bold; font-size:16px; }
     .stock-qty.low { color:var(--red); }
+    /* product name in the Mevcut Stok list — larger for readability */
+    .stock-name { font-size:15px; font-weight:600; letter-spacing:0.2px; }
+    /* smaller green "Kaydet" button used in the stock rows */
+    .btn-save-sm { padding:5px 11px; background:var(--green); color:#fff; border:none;
+                   border-radius:7px; font-weight:bold; font-size:12px; cursor:pointer; }
+    .btn-save-sm:hover { filter:brightness(1.08); }
     .cal-head .month { font-weight:bold; font-size:16px; }
     .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
     .cal-dow { text-align:center; font-size:11px; color:var(--muted); font-weight:bold; padding-bottom:4px; }
@@ -116,8 +124,87 @@
     .t-title { font-size:14px; font-weight:600; }
     .t-cat { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.4px; }
     .t-overdue-mark { color:var(--red); font-weight:bold; font-size:18px; }
-    .t-del { background:none; border:none; color:#c62828; cursor:pointer; font-size:16px; }
+    .t-del { background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px;
+             width:28px; height:28px; border-radius:50%; padding:0; line-height:1;
+             display:inline-flex; align-items:center; justify-content:center;
+             transition:background .15s, color .15s; }
+    .t-del:hover { background:#fdecec; color:var(--red); }
     .empty-note { color:var(--muted); font-size:13px; padding:14px 0; text-align:center; }
+
+    /* ── KAHVE MAKİNESİ ── */
+    .coffee-big { font-size:44px; font-weight:800; line-height:1.1; color:var(--ink); }
+    .coffee-big .of { font-size:20px; color:var(--muted); font-weight:700; }
+    .coffee-bar { height:14px; background:#eee8dd; border-radius:8px; overflow:hidden; margin:12px 0 8px; }
+    .coffee-bar > div { height:100%; background:var(--green); border-radius:8px; transition:width .3s; }
+    .coffee-bar.near > div { background:var(--amber); }
+    .coffee-bar.due  > div { background:var(--red); }
+    .coffee-meta { font-size:12px; color:var(--muted); }
+    .coffee-due-tag { display:inline-block; background:var(--red); color:#fff; font-size:12px; font-weight:bold;
+                      padding:3px 10px; border-radius:10px; margin-left:8px; vertical-align:middle; }
+    .coffee-field { display:flex; align-items:center; gap:10px; margin-top:16px; font-size:14px; font-weight:600; }
+    .coffee-field input { width:100px; padding:8px; border:1px solid var(--line); border-radius:8px; text-align:center; font-size:15px; }
+    .coffee-sections { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px; font-size:13px; }
+    .coffee-sections label { display:flex; align-items:center; gap:5px; cursor:pointer; }
+    .coffee-log-row { display:flex; justify-content:space-between; gap:8px; padding:7px 0;
+                      border-bottom:1px solid var(--line); font-size:13px; }
+    .coffee-log-row .when { color:var(--muted); font-size:12px; white-space:nowrap; }
+    /* ── REÇETELER ── */
+    .rc-add { display:grid; grid-template-columns: 1fr 1.6fr 1.8fr auto; gap:8px; align-items:start; }
+    .rc-add input, .rc-add textarea { padding:10px; border:1px solid var(--line); border-radius:8px;
+                                      font:inherit; font-size:13px; resize:none; overflow:hidden; width:100%; }
+    .rc-add button { padding:10px 18px; background:var(--ink); color:var(--cream); border:none;
+                     border-radius:8px; font-weight:bold; cursor:pointer; }
+    .rc-search { padding:8px 12px; border:1px solid var(--line); border-radius:20px; font-size:13px; min-width:220px; }
+    .rc-table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+    .rc-table th { text-align:left; padding:8px 6px; background:#eef2f3; font-size:12px; }
+    .rc-table td { padding:5px 3px; vertical-align:top; border-bottom:1px solid var(--line); }
+    .rc-table input, .rc-table textarea { width:100%; border:1px solid transparent; border-radius:7px;
+                     padding:7px; font:inherit; font-size:13px; background:transparent; resize:none;
+                     overflow:hidden; line-height:1.45; }
+    .rc-table input:hover, .rc-table textarea:hover { border-color:var(--line); }
+    .rc-table input:focus, .rc-table textarea:focus { border-color:var(--ink); background:#fff; outline:none; }
+    .rc-table .rc-name { font-weight:700; font-size:14px; }
+    .rc-save { padding:6px 10px; background:var(--green); color:#fff; border:none; border-radius:7px;
+               font-weight:bold; font-size:12px; cursor:pointer; margin-top:3px; white-space:nowrap; }
+    .rc-save.dirty { background:var(--amber); color:var(--ink); }
+    @media (max-width: 900px) { .rc-add { grid-template-columns: 1fr; } }
+    /* ── İPTAL EDİLENLER ── */
+    .cx-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .cx-table th { text-align:left; padding:8px 6px; background:#eef2f3; font-size:12px; white-space:nowrap; }
+    .cx-table td { padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+    .cx-reason-tag { background:#fdecec; color:var(--red); font-weight:700; font-size:12px; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+    /* ── RAPORLAR: date range ── */
+    .rng-quick { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+    .rng-quick button { padding:6px 12px; border:1.5px solid var(--line); background:#fff; border-radius:20px;
+                        font-size:12px; font-weight:600; cursor:pointer; }
+    .rng-quick button:hover { border-color:var(--ink); }
+    .rng-row { align-items:flex-end; flex-wrap:wrap; }
+    .rng-row label { display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:600; color:var(--muted); flex:1; min-width:150px; }
+    /* ── AYARLAR → MASALAR ── */
+    .ta-area { border:1px solid var(--line); border-radius:11px; padding:12px; margin-bottom:10px; background:var(--paper); }
+    .ta-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+    .ta-name { flex:1; min-width:160px; padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+               font-weight:700; font-size:15px; }
+    .ta-count { color:var(--muted); font-size:12px; }
+    .ta-del-area { padding:6px 10px; border:1px solid var(--red); color:var(--red); background:#fff;
+                   border-radius:7px; cursor:pointer; font-size:12px; }
+    .ta-chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+    .ta-chip { display:inline-flex; align-items:center; gap:4px; padding:5px 6px 5px 11px; border:1.5px solid var(--ink);
+               border-radius:20px; font-weight:700; font-size:14px; background:#fff; }
+    .ta-chip button { border:none; background:none; color:var(--muted); cursor:pointer; font-size:12px;
+                      width:20px; height:20px; border-radius:50%; padding:0; }
+    .ta-chip button:hover { background:#fdecec; color:var(--red); }
+    .ta-chip.open { border-color:var(--red); color:var(--red); padding-right:11px; }
+    .ta-chip .dot { font-size:10px; }
+    .ta-chip.open button { color:var(--red); }
+    .ta-chip.editing { padding:3px 4px; gap:4px; }
+    .ta-chip.editing input { width:170px; padding:4px 6px; border:1px solid var(--line); border-radius:6px; font-size:13px; }
+    .ta-chip.editing .ok { color:var(--green, #2e7d32); font-weight:bold; }
+    .ta-add { display:flex; gap:8px; }
+    .ta-add input { flex:1; padding:9px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+    .ta-add button { padding:9px 16px; background:var(--ink); color:var(--cream); border:none; border-radius:8px;
+                     font-weight:bold; cursor:pointer; }
+    .maint-row { display:flex; align-items:flex-start; gap:8px; padding:9px 0; border-bottom:1px solid var(--line); font-size:13px; }
 
     /* "coming soon" sections */
     .soon { text-align:center; color:var(--muted); padding:60px 20px; }
@@ -145,7 +232,7 @@
     <div class="modal-box">
         <h2>YÖNETİM</h2>
         <p>Yönetici girişi (checkout PIN)</p>
-        <input type="password" id="pinInput" maxlength="12" placeholder="••••" autofocus>
+        <input type="password" id="pinInput" maxlength="16" placeholder="Şifre" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus>
         <div id="pinError"></div>
         <button onclick="checkPin()">Giriş</button>
     </div>
@@ -156,12 +243,16 @@
         <div class="brand">YUZDOKSANBES</div>
         <div class="nav-item active" data-page="home"     onclick="nav('home',this)">🏠 Anasayfa</div>
         <div class="nav-item"        data-page="reports"  onclick="nav('reports',this)">📊 Raporlar</div>
+        <div class="nav-item"        data-page="cancels"  onclick="nav('cancels',this)">🚫 İptal Edilenler</div>
         <div class="nav-item"        data-page="stock"    onclick="nav('stock',this)">📦 Stok</div>
+        <div class="nav-item"        data-page="coffee"   onclick="nav('coffee',this)">☕ Kahve Makinesi</div>
+        <div class="nav-item"        data-page="recipes"  onclick="nav('recipes',this)">📖 Reçeteler</div>
         <div class="nav-item"        data-page="expenses" onclick="nav('expenses',this)">🧾 Gelir/Gider</div>
         <div class="nav-item"        data-page="schedule" onclick="nav('schedule',this)">🗓️ Plan</div>
         <div class="nav-item"        data-page="settings" onclick="nav('settings',this)">⚙️ Ayarlar</div>
         <div class="nav-spacer"></div>
         <div class="nav-logout" onclick="logout()">⎋ Çıkış</div>
+        <div id="appVersion" style="padding:0 20px 14px;font-size:11px;color:#777;"></div>
     </div>
 
     <div class="content" id="content"></div>
@@ -175,7 +266,19 @@
     function authFetch(url, opts={}) {
         opts.headers = opts.headers || {};
         if(AUTH_TOKEN) opts.headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
-        return fetch(url, opts);
+        // Always hit the server (LAN is fast) so deletions/edits made elsewhere
+        // never show up stale from the browser's GET cache.
+        if(!('cache' in opts)) opts.cache = 'no-store';
+        const sent = AUTH_TOKEN;
+        // 401 = session no longer valid (password changed / expired) → login again
+        return fetch(url, opts).then(res => { if(res.status === 401 && sent) { sessionExpired(); return new Promise(() => {}); } return res; });
+    }
+    let _expiring = false;
+    function sessionExpired() {
+        if(_expiring) return; _expiring = true;
+        sessionStorage.removeItem('dash_token'); AUTH_TOKEN = null;
+        alert('Oturum sona erdi (şifre değişmiş olabilir). Lütfen yeniden giriş yapın.');
+        location.reload();
     }
     async function checkPin() {
         const val = document.getElementById('pinInput').value;
@@ -193,7 +296,7 @@
                 document.getElementById('app').style.display='flex';
                 nav('home', document.querySelector('.nav-item'));
             } else {
-                document.getElementById('pinError').innerText = 'Hatalı PIN.';
+                document.getElementById('pinError').innerText = 'Hatalı şifre.';
             }
         } catch(e) { document.getElementById('pinError').innerText = 'Sunucuya ulaşılamadı.'; }
     }
@@ -208,6 +311,17 @@
     const TR_DOW=['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
     function ymd(d){const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;}
     function todayYMD(){return ymd(new Date());}
+    // Format a stored ISO timestamp (datetime.now().isoformat(), local time) as
+    // "dd-mm-yyyy HH:MM". Used by the Stock tab (last-counted + count history).
+    function fmtDate(s){
+        if(!s) return '';
+        const d = new Date(s);
+        if(isNaN(d.getTime())) return String(s);
+        const p = n => String(n).padStart(2,'0');
+        return `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+    // Stock is tracked in whole units — round for display everywhere.
+    function whole(n){ return Math.round(Number(n) || 0); }
 
     // ===== navigation =====
     let currentPage = 'home';
@@ -218,18 +332,40 @@
         if(el) el.classList.add('active');
         if(page==='home') renderHome();
         else if(page==='reports') renderReports();
+        else if(page==='cancels') renderCancels();
         else if(page==='expenses') renderFinance();
         else if(page==='stock') renderStock();
+        else if(page==='coffee') renderCoffee();
+        else if(page==='recipes') renderRecipes();
         else if(page==='schedule') renderSchedule();
         else if(page==='settings') renderSettings();
         else renderSoon(page);
     }
 
-    // Auto-refresh the Home summary every 60s so new sales appear without
-    // the user having to switch tabs or reload.
+    // Auto-refresh the active data page every 60s so sales made/removed
+    // elsewhere (e.g. a sale deleted on the POS "Satışlar" table) show up
+    // without a manual reload. Only pages whose refresh does NOT wipe a
+    // half-filled form are included (loadFinance updates totals/tables/chart,
+    // not the add-expense/income inputs).
     setInterval(() => {
         if(currentPage === 'home') loadSummary();
+        else if(currentPage === 'expenses') loadFinance();
+        else if(currentPage === 'coffee') loadCoffee();
     }, 60000);
+    // App version under the menu (from /health).
+    fetch('/health').then(r => r.json()).then(h => {
+        const el = document.getElementById('appVersion');
+        if(el && h.version) el.textContent = 'Sürüm ' + h.version;
+    }).catch(() => {});
+    // Home-page clock (24h, HH:MM:SS). Ticks every second; does nothing when
+    // another page is open (the #homeClock element only exists on Anasayfa).
+    function clockText(){
+        return new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+    }
+    setInterval(() => {
+        const el = document.getElementById('homeClock');
+        if(el) el.textContent = clockText();
+    }, 1000);
     const SOON_TITLES={stock:'Stok'};
     function renderSoon(page){
         document.getElementById('content').innerHTML =
@@ -259,7 +395,7 @@
 
                     <!-- ADD EXPENSE -->
                     <div class="card" style="margin-bottom:14px;">
-                        <h3>➕ Gider Ekle</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">➕</span> Gider Ekle</h3>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
                             <select id="expCat" style="padding:10px;border:1px solid var(--line);border-radius:8px;">${catOpts}</select>
                             <input id="expDate" type="date" value="${todayYMD()}" style="padding:10px;border:1px solid var(--line);border-radius:8px;">
@@ -277,7 +413,7 @@
 
                     <!-- ADD MANUAL INCOME -->
                     <div class="card" style="margin-bottom:14px;">
-                        <h3>➕ Ek Gelir Ekle</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">➕</span> Ek Gelir Ekle</h3>
                         <div style="display:flex;gap:8px;margin-bottom:8px;">
                             <input id="incDesc" placeholder="Açıklama" style="flex:2;padding:10px;border:1px solid var(--line);border-radius:8px;">
                             <input id="incAmt" type="number" min="0" placeholder="Tutar" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;">
@@ -288,26 +424,26 @@
 
                     <!-- EXPENSE TABLE -->
                     <div class="card">
-                        <h3>📋 Giderler</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📋</span> Giderler</h3>
                         <div id="expTable" style="max-height:350px;overflow-y:auto;"></div>
                     </div>
 
                     <!-- MANUAL INCOME TABLE -->
                     <div class="card" style="margin-top:14px;" id="incCard">
-                        <h3>📋 Ek Gelirler</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📋</span> Ek Gelirler</h3>
                         <div id="incTable"></div>
                     </div>
                 </div>
                 <div>
                     <!-- PIE CHART -->
                     <div class="card" style="text-align:center;">
-                        <h3>📊 Gelir / Gider Dağılımı</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📊</span> Gelir / Gider Dağılımı</h3>
                         <canvas id="pieChart" width="320" height="320" style="margin:0 auto;display:block;"></canvas>
                         <div id="pieLegend" style="margin-top:14px;"></div>
                     </div>
                     <!-- CATEGORY BREAKDOWN -->
                     <div class="card" style="margin-top:14px;">
-                        <h3>📦 Gider Kategorileri</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📦</span> Gider Kategorileri</h3>
                         <div id="catBreakdown"></div>
                     </div>
                 </div>
@@ -776,15 +912,15 @@
         try { stockStaff = (await (await authFetch('/stock/config')).json()).staff; } catch(e){ stockStaff=[]; }
         document.getElementById('content').innerHTML = `
             <div class="page-title">Stok</div>
-            <div class="page-sub">Haftalık sayım — gerçek miktarı girin. ${''}5'in altı kırmızı ile işaretlenir.</div>
+            <div class="page-sub">Haftalık sayım — gerçek miktarı (tam sayı) girin. Alt limitin altındaki ürünler kırmızı işaretlenir.</div>
             <div class="home-grid">
                 <div>
                     <div class="card">
-                        <h3>📦 Mevcut Stok</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📦</span> Mevcut Stok</h3>
                         <div id="stockTable"></div>
                     </div>
                     <div class="card" style="margin-top:14px;">
-                        <h3>➕ Yeni Ürün Ekle</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">➕</span> Yeni Ürün Ekle</h3>
                         <div style="display:flex;gap:8px;">
                             <input id="newStockName" placeholder="Ürün adı" style="flex:2;padding:10px;border:1px solid var(--line);border-radius:8px;">
                             <input id="newStockUnit" placeholder="Birim (adet/kg...)" value="adet" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;">
@@ -794,7 +930,7 @@
                 </div>
                 <div>
                     <div class="card">
-                        <h3>📝 Sayım Geçmişi</h3>
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📝</span> Sayım Geçmişi</h3>
                         <div id="stockLogs" style="max-height:480px;overflow-y:auto;"></div>
                     </div>
                 </div>
@@ -819,23 +955,25 @@
         el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
             <tr style="background:#eef2f3;">
                 <th style="padding:8px;text-align:left;">Ürün</th>
-                <th>Mevcut</th><th>Yeni Sayım</th><th>Sayan</th><th></th><th></th>
+                <th>Mevcut</th><th title="Bu miktarın altında kırmızı uyarı verilir">Alt Limit</th>
+                <th>Yeni Sayım</th><th>Sayan</th><th></th><th></th>
             </tr>
             ${stockItems.map(it=>{
                 const low = it.low;
                 return `<tr style="border-bottom:1px solid var(--line);">
-                    <td style="padding:8px;">${esc(it.name)} <span style="color:var(--muted);font-size:11px;">(${esc(it.unit)})</span>
-                        ${low?'<span class="stock-low-tag">DÜŞÜK</span>':''}
+                    <td style="padding:10px 8px;"><span class="stock-name">${esc(it.name)}</span> <span style="color:var(--muted);font-size:11px;">(${esc(it.unit)})</span>
+                        <span id="lowtag_${it.id}" class="stock-low-tag" style="${low?'':'display:none;'}">DÜŞÜK</span>
                         ${it.updated_by?`<br><span style="color:var(--muted);font-size:10px;">son: ${esc(it.updated_by)} • ${it.updated_at?fmtDate(it.updated_at):''}</span>`:''}
                     </td>
-                    <td style="text-align:center;"><span class="stock-qty ${low?'low':''}">${it.quantity}</span></td>
-                    <td style="text-align:center;"><input type="number" id="cnt_${it.id}" min="0" step="0.1" placeholder="${it.quantity}" style="width:70px;padding:7px;border:1px solid var(--line);border-radius:7px;text-align:center;"></td>
+                    <td style="text-align:center;"><span id="qty_${it.id}" class="stock-qty ${low?'low':''}">${whole(it.quantity)}</span></td>
+                    <td style="text-align:center;"><input type="number" id="th_${it.id}" min="0" step="1" inputmode="numeric" value="${whole(it.threshold)}" onchange="saveThreshold(${it.id})" title="Alt limit" style="width:60px;padding:7px;border:1px solid var(--line);border-radius:7px;text-align:center;"></td>
+                    <td style="text-align:center;"><input type="number" id="cnt_${it.id}" min="0" step="1" inputmode="numeric" placeholder="${whole(it.quantity)}" style="width:70px;padding:7px;border:1px solid var(--line);border-radius:7px;text-align:center;"></td>
                     <td style="text-align:center;">
                         <select id="by_${it.id}" onchange="toggleOther(${it.id})" style="padding:7px;border:1px solid var(--line);border-radius:7px;">${staffOptions()}</select>
                         <input id="byo_${it.id}" placeholder="isim" style="display:none;width:80px;padding:7px;border:1px solid var(--line);border-radius:7px;margin-top:4px;">
                     </td>
-                    <td><button onclick="saveCount(${it.id})" style="padding:7px 12px;background:var(--green);color:#fff;border:none;border-radius:7px;font-weight:bold;cursor:pointer;">Kaydet</button></td>
-                    <td><button class="t-del" onclick="delStockItem(${it.id},'${esc(it.name).replace(/'/g,"")}')">✕</button></td>
+                    <td style="padding-left:14px;"><button class="btn-save-sm" onclick="saveCount(${it.id})">Kaydet</button></td>
+                    <td style="padding-left:8px;padding-right:6px;"><button class="t-del" onclick="delStockItem(${it.id},'${esc(it.name).replace(/'/g,"")}')">✕</button></td>
                 </tr>`;
             }).join('')}
             </table>`;
@@ -849,8 +987,8 @@
 
     async function saveCount(id) {
         const qtyEl = document.getElementById('cnt_'+id);
-        const qty = parseFloat(qtyEl.value);
-        if(isNaN(qty)){ showToast('Miktar girin'); return; }
+        const qty = whole(qtyEl.value);
+        if(qtyEl.value === '' || isNaN(parseFloat(qtyEl.value))){ showToast('Miktar girin'); return; }
         let by = document.getElementById('by_'+id).value;
         if(by === '__other') by = document.getElementById('byo_'+id).value.trim();
         if(!by){ showToast('Sayan kişiyi seçin'); return; }
@@ -858,6 +996,33 @@
             body:JSON.stringify({id, quantity:qty, counted_by:by})});
         showToast('Sayım kaydedildi ✓');
         await loadStock(); loadStockLogs();
+    }
+
+    async function saveThreshold(id) {
+        const el = document.getElementById('th_'+id);
+        const v = whole(el.value);
+        if(el.value === '' || isNaN(parseFloat(el.value)) || v < 0){ showToast('Geçerli alt limit girin'); return; }
+        const it = stockItems.find(x => x.id === id);
+        let res;
+        try {
+            res = await authFetch('/stock/set-threshold',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({id, threshold:v})});
+        } catch(e) { res = null; }
+        if(!res || !res.ok){
+            showToast('Alt limit kaydedilemedi!');
+            if(it) el.value = whole(it.threshold);   // revert to the saved value
+            return;
+        }
+        // Update only this row in place — re-rendering the table would wipe
+        // unsaved "Yeni Sayım" / "Sayan" entries in the other rows.
+        if(it){
+            it.threshold = v;
+            it.low = whole(it.quantity) < v;       // same rule as the server (_is_low)
+            document.getElementById('lowtag_'+id).style.display = it.low ? '' : 'none';
+            document.getElementById('qty_'+id).classList.toggle('low', it.low);
+        }
+        el.value = v;
+        showToast('Alt limit güncellendi ✓');
     }
 
     async function addStockItem() {
@@ -884,13 +1049,397 @@
             const el = document.getElementById('stockLogs');
             if(!d.logs.length){ el.innerHTML='<div class="empty-note">Henüz sayım yok</div>'; return; }
             el.innerHTML = d.logs.map(l=>`
-                <div style="padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;">
-                    <div style="display:flex;justify-content:space-between;">
-                        <b>${esc(l.item_name)}</b><span class="stock-qty">${l.quantity}</span>
+                <div style="display:flex;align-items:flex-start;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;justify-content:space-between;gap:8px;">
+                            <b style="word-break:break-word;">${esc(l.item_name)}</b><span class="stock-qty">${whole(l.quantity)}</span>
+                        </div>
+                        <div style="color:var(--muted);font-size:11px;">${esc(l.counted_by)} • ${fmtDate(l.counted_at)}</div>
                     </div>
-                    <div style="color:var(--muted);font-size:11px;">${esc(l.counted_by)} • ${fmtDate(l.counted_at)}</div>
+                    <button class="t-del" onclick="delStockLog(${l.id})" title="Bu kaydı sil">✕</button>
                 </div>`).join('');
         } catch(e){}
+    }
+
+    async function delStockLog(id) {
+        if(!confirm('Bu sayım kaydı silinsin mi? (Ürünün mevcut miktarı değişmez)')) return;
+        let res;
+        try {
+            res = await authFetch('/stock/delete-log',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({id})});
+        } catch(e) { res = null; }
+        if(!res || !res.ok){ showToast('Kayıt silinemedi!'); return; }
+        showToast('Kayıt silindi');
+        loadStockLogs();
+    }
+
+    // ===== KAHVE MAKİNESİ (coffee counter + maintenance log) =====
+    async function renderCoffee() {
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">Kahve Makinesi</div>
+            <div class="page-sub">Kaydedilen / onaylanan siparişlerdeki kahveler sayılır. Eşiğe ulaşınca Anasayfa'da bakım uyarısı çıkar.</div>
+            <div class="home-grid">
+                <div>
+                    <div class="card">
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">☕</span> Kahve Sayacı</h3>
+                        <div id="coffeeCounter"><div class="empty-note">Yükleniyor…</div></div>
+                        <div class="coffee-field">
+                            <span title="Bu kadar kahveden sonra bakım uyarısı verilir">Bakım eşiği (kahve):</span>
+                            <input type="number" id="coffeeThreshold" min="1" step="1" inputmode="numeric" onchange="saveCoffeeThreshold()">
+                        </div>
+                        <div style="margin-top:16px;font-size:14px;font-weight:600;">Sayılan bölümler</div>
+                        <div class="coffee-sections" id="coffeeSections"></div>
+                        <div class="coffee-meta" id="coffeeExtras" style="margin-top:6px;"></div>
+                    </div>
+                    <div class="card" style="margin-top:14px;">
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📝</span> Kahve Kayıtları</h3>
+                        <div class="coffee-meta" style="margin-bottom:6px;">Son bakımdan bu yana (en yeni üstte)</div>
+                        <div id="coffeeLog" style="max-height:420px;overflow-y:auto;"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="card">
+                        <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">🔧</span> Bakım Kayıtları</h3>
+                        <div class="task-add">
+                            <input id="maintNote" maxlength="200" placeholder="Not (isteğe bağlı) — örn. kireç temizliği" onkeydown="if(event.key==='Enter')logMaintenance()">
+                            <button onclick="logMaintenance()">Bakım Yapıldı</button>
+                        </div>
+                        <div id="maintList" style="max-height:520px;overflow-y:auto;"></div>
+                    </div>
+                </div>
+            </div>`;
+        await loadCoffee(true);
+    }
+
+    // full=true also fills the inputs/checkboxes (first draw). The 60 s refresh
+    // calls loadCoffee() without it, so it never overwrites something being typed.
+    async function loadCoffee(full) {
+        let d;
+        try {
+            const res = await authFetch('/coffee/status');
+            if(!res.ok) throw new Error();
+            d = await res.json();
+        } catch(e) {
+            const c = document.getElementById('coffeeCounter');
+            if(c) c.innerHTML = '<div class="empty-note">Yüklenemedi</div>';
+            return;
+        }
+        if(currentPage !== 'coffee' || !document.getElementById('coffeeCounter')) return;
+        renderCoffeeCounter(d);
+        const th = document.getElementById('coffeeThreshold');
+        if(full || document.activeElement !== th) th.value = d.threshold;
+        if(full) {
+            document.getElementById('coffeeSections').innerHTML = d.sections.map(s =>
+                `<label><input type="checkbox" value="${esc(s.name)}" ${s.selected?'checked':''} onchange="saveCoffeeSections()"> ${esc(s.name)}</label>`
+            ).join('');
+            document.getElementById('coffeeExtras').innerText =
+                d.extra_items.length ? 'Ayrıca sayılan: ' + d.extra_items.join(', ') : '';
+        }
+        document.getElementById('coffeeLog').innerHTML = d.recent.length
+            ? d.recent.map(r => `<div class="coffee-log-row">
+                    <span><b>${esc(r.product)}</b> ×${whole(r.qty)} <span style="color:var(--muted);">· ${esc(r.table_label || 'Masa ' + r.table_no)}</span></span>
+                    <span class="when">${fmtDate(r.time)}</span></div>`).join('')
+            : '<div class="empty-note">Son bakımdan beri kahve yok</div>';
+        document.getElementById('maintList').innerHTML = d.maintenance.length
+            ? d.maintenance.map(m => `<div class="maint-row">
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;justify-content:space-between;gap:8px;">
+                            <b>🔧 ${fmtDate(m.done_at)}</b>
+                            <span style="color:var(--muted);white-space:nowrap;">${m.coffee_count ?? 0} kahve sonra</span>
+                        </div>
+                        ${m.note ? `<div style="color:var(--muted);font-size:12px;word-break:break-word;">${esc(m.note)}</div>` : ''}
+                    </div>
+                    <button class="t-del" onclick="delMaintenance(${m.id})" title="Bu kaydı sil">✕</button>
+                </div>`).join('')
+            : '<div class="empty-note">Henüz bakım kaydı yok</div>';
+    }
+
+    function renderCoffeeCounter(d) {
+        const pct = Math.min(100, d.threshold ? d.count / d.threshold * 100 : 0);
+        const cls = d.due ? 'due' : (d.near ? 'near' : '');
+        document.getElementById('coffeeCounter').innerHTML = `
+            <div class="coffee-big">${d.count} <span class="of">/ ${d.threshold} kahve</span>
+                ${d.due ? '<span class="coffee-due-tag">BAKIM ZAMANI</span>' : ''}</div>
+            <div class="coffee-bar ${cls}"><div style="width:${pct.toFixed(1)}%"></div></div>
+            <div class="coffee-meta">Bugün: <b>${d.today_count}</b> kahve
+                ${d.since ? ' · Sayım başlangıcı: ' + fmtDate(d.since) : ''}</div>`;
+    }
+
+    async function postJSON(url, body) {
+        try {
+            return await authFetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                                         body: JSON.stringify(body)});
+        } catch(e) { return null; }
+    }
+
+    async function saveCoffeeThreshold() {
+        const el = document.getElementById('coffeeThreshold');
+        const v = whole(el.value);
+        if(el.value === '' || v < 1) { showToast('Geçerli bir eşik girin (en az 1)'); loadCoffee(true); return; }
+        const res = await postJSON('/coffee/settings', {threshold: v});
+        if(!res || !res.ok) { showToast('Eşik kaydedilemedi!'); loadCoffee(true); return; }
+        el.value = v;
+        showToast('Bakım eşiği güncellendi ✓');
+        loadCoffee();
+    }
+
+    async function saveCoffeeSections() {
+        const sections = [...document.querySelectorAll('#coffeeSections input:checked')].map(i => i.value);
+        const res = await postJSON('/coffee/settings', {sections});
+        if(!res || !res.ok) { showToast('Kaydedilemedi!'); loadCoffee(true); return; }
+        showToast('Sayılan bölümler güncellendi ✓');
+        loadCoffee();
+    }
+
+    async function logMaintenance() {
+        if(!confirm('Kahve makinesi bakımı yapıldı olarak kaydedilsin mi? Sayaç sıfırlanır.')) return;
+        const noteEl = document.getElementById('maintNote');
+        const res = await postJSON('/coffee/maintenance', {note: noteEl.value.trim() || null});
+        if(!res || !res.ok) { showToast('Bakım kaydedilemedi!'); return; }
+        noteEl.value = '';
+        showToast('Bakım kaydedildi ✓ Sayaç sıfırlandı');
+        loadCoffee();
+    }
+
+    async function delMaintenance(id) {
+        if(!confirm('Bu bakım kaydı silinsin mi? Sayaç önceki bakımdan itibaren yeniden hesaplanır.')) return;
+        const res = await postJSON('/coffee/delete-maintenance', {id});
+        if(!res || !res.ok) { showToast('Kayıt silinemedi!'); return; }
+        showToast('Bakım kaydı silindi');
+        loadCoffee();
+    }
+
+    // ===== REÇETELER (simple editable recipe table) =====
+    // One row per recipe: Ürün | Malzemeler | Hazırlanış. Save / add / delete
+    // only touch their own row — never a full redraw — so unsaved edits in
+    // other rows are never lost. Not in the 60 s auto-refresh for the same reason.
+    let rcData = {};          // id -> last SAVED version (for the "unsaved" marker)
+
+    async function renderRecipes() {
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">Reçeteler</div>
+            <div class="page-sub">Tabloda doğrudan düzenleyin, sonra o satırın <b>Kaydet</b> düğmesine basın.</div>
+            <div class="card" style="margin-bottom:14px;">
+                <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">➕</span> Yeni Reçete</h3>
+                <div class="rc-add">
+                    <input id="rcNewName" list="rcMenuList" maxlength="80" placeholder="Ürün / reçete adı">
+                    <datalist id="rcMenuList"></datalist>
+                    <textarea id="rcNewIng" rows="2" spellcheck="false" maxlength="2000" placeholder="Malzemeler (örn. 18 g espresso, 200 ml süt)" oninput="autoGrow(this)"></textarea>
+                    <textarea id="rcNewSteps" rows="2" spellcheck="false" maxlength="4000" placeholder="Hazırlanış" oninput="autoGrow(this)"></textarea>
+                    <button onclick="addRecipe()">Ekle</button>
+                </div>
+            </div>
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                    <h3 style="font-size:18px;color:var(--ink);margin:0;"><span style="font-size:23px;">📖</span> Reçeteler <span id="rcCount" style="color:var(--muted);font-weight:normal;"></span></h3>
+                    <input id="rcSearch" class="rc-search" placeholder="🔎 Reçete ara…" oninput="filterRecipes()">
+                </div>
+                <table class="rc-table">
+                    <thead><tr><th style="width:20%;">Ürün</th><th style="width:34%;">Malzemeler</th><th>Hazırlanış</th><th style="width:78px;"></th><th style="width:34px;"></th></tr></thead>
+                    <tbody id="rcBody"><tr><td colspan="5"><div class="empty-note">Yükleniyor…</div></td></tr></tbody>
+                </table>
+            </div>`;
+        let d;
+        try {
+            const res = await authFetch('/recipes');
+            if(!res.ok) throw new Error();
+            d = await res.json();
+        } catch(e) {
+            document.getElementById('rcBody').innerHTML = '<tr><td colspan="5"><div class="empty-note">Yüklenemedi</div></td></tr>';
+            return;
+        }
+        if(currentPage !== 'recipes') return;
+        document.getElementById('rcMenuList').innerHTML = d.menu_names.map(n => `<option value="${esc(n)}">`).join('');
+        rcData = {};
+        d.recipes.sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+        d.recipes.forEach(r => rcData[r.id] = r);
+        document.getElementById('rcBody').innerHTML = d.recipes.map(recipeRowHtml).join('');
+        rcAfterChange();
+        document.querySelectorAll('#rcBody textarea').forEach(autoGrow);
+    }
+
+    function recipeRowHtml(r) {
+        return `<tr class="rc-row" data-id="${r.id}">
+            <td><input class="rc-name" maxlength="80" spellcheck="false" value="${esc(r.name)}" oninput="rcDirty(${r.id})"></td>
+            <td><textarea class="rc-ing" rows="1" spellcheck="false" maxlength="2000" oninput="rcDirty(${r.id});autoGrow(this)">${esc(r.ingredients)}</textarea></td>
+            <td><textarea class="rc-steps" rows="1" spellcheck="false" maxlength="4000" oninput="rcDirty(${r.id});autoGrow(this)">${esc(r.steps)}</textarea></td>
+            <td><button class="rc-save" onclick="saveRecipe(${r.id})">Kaydet</button></td>
+            <td><button class="t-del" onclick="delRecipe(${r.id})" title="Reçeteyi sil">✕</button></td>
+        </tr>`;
+    }
+
+    function autoGrow(el) { el.style.height = 'auto'; el.style.height = (el.scrollHeight + 2) + 'px'; }
+    const rcRow = id => document.querySelector(`#rcBody tr[data-id="${id}"]`);
+    const rcVals = tr => ({ name: tr.querySelector('.rc-name').value,
+                            ingredients: tr.querySelector('.rc-ing').value,
+                            steps: tr.querySelector('.rc-steps').value });
+
+    // Amber "Kaydet •" while a row differs from its last saved version.
+    function rcDirty(id) {
+        const tr = rcRow(id), saved = rcData[id];
+        if(!tr || !saved) return;
+        const v = rcVals(tr);
+        const dirty = v.name.trim() !== saved.name || v.ingredients !== saved.ingredients || v.steps !== saved.steps;
+        const btn = tr.querySelector('.rc-save');
+        btn.classList.toggle('dirty', dirty);
+        btn.textContent = dirty ? 'Kaydet •' : 'Kaydet';
+    }
+
+    // Empty-state row + count + current search filter.
+    function rcAfterChange() {
+        const body = document.getElementById('rcBody');
+        const n = body.querySelectorAll('tr.rc-row').length;
+        const empty = body.querySelector('tr.rc-empty');
+        if(!n && !empty) body.innerHTML = '<tr class="rc-empty"><td colspan="5"><div class="empty-note">Henüz reçete yok — yukarıdan ekleyin</div></td></tr>';
+        if(n && empty) empty.remove();
+        document.getElementById('rcCount').textContent = n ? `(${n})` : '';
+        filterRecipes();
+    }
+
+    function filterRecipes() {
+        const q = (document.getElementById('rcSearch')?.value || '').trim().toLocaleLowerCase('tr');
+        document.querySelectorAll('#rcBody tr.rc-row').forEach(tr => {
+            const v = rcVals(tr);
+            const hay = (v.name + ' ' + v.ingredients + ' ' + v.steps).toLocaleLowerCase('tr');
+            tr.style.display = !q || hay.includes(q) ? '' : 'none';
+        });
+    }
+
+    async function rcPost(url, body) {
+        let res;
+        try {
+            res = await authFetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+        } catch(e) { showToast('Sunucuya ulaşılamadı!'); return null; }
+        const d = await res.json().catch(() => ({}));
+        if(!res.ok) {
+            // FastAPI validation errors come as a list; our own errors as a string.
+            showToast(typeof d.detail === 'string' ? d.detail : 'Geçersiz bilgi — reçete adı gerekli');
+            return null;
+        }
+        return d;
+    }
+
+    async function addRecipe() {
+        const nameEl = document.getElementById('rcNewName');
+        const ingEl = document.getElementById('rcNewIng'), stEl = document.getElementById('rcNewSteps');
+        const name = nameEl.value.trim();
+        if(!name) { showToast('Reçete adı girin'); nameEl.focus(); return; }
+        const r = await rcPost('/recipes/add', {name, ingredients: ingEl.value, steps: stEl.value});
+        if(!r) return;                                   // form kept as typed
+        rcData[r.id] = r;
+        // insert at its alphabetical place (Turkish order), without redrawing others
+        const body = document.getElementById('rcBody');
+        const next = [...body.querySelectorAll('tr.rc-row')].find(tr =>
+            (rcData[tr.dataset.id]?.name || '').localeCompare(r.name, 'tr') > 0);
+        const tmp = document.createElement('tbody'); tmp.innerHTML = recipeRowHtml(r);
+        const tr = tmp.firstElementChild;
+        body.insertBefore(tr, next || null);
+        tr.querySelectorAll('textarea').forEach(autoGrow);
+        nameEl.value = ''; ingEl.value = ''; stEl.value = '';
+        [ingEl, stEl].forEach(autoGrow);
+        rcAfterChange();
+        showToast('Reçete eklendi ✓');
+    }
+
+    async function saveRecipe(id) {
+        const tr = rcRow(id); if(!tr) return;
+        const v = rcVals(tr);
+        if(!v.name.trim()) { showToast('Reçete adı boş olamaz'); return; }
+        const r = await rcPost('/recipes/update', {id, name: v.name.trim(), ingredients: v.ingredients, steps: v.steps});
+        if(!r) return;                                   // edits stay, still marked unsaved
+        rcData[id] = r;
+        tr.querySelector('.rc-name').value = r.name;
+        rcDirty(id);
+        showToast('Kaydedildi ✓');
+    }
+
+    async function delRecipe(id) {
+        const name = rcData[id]?.name || '';
+        if(!confirm(`"${name}" reçetesi silinsin mi?`)) return;
+        const r = await rcPost('/recipes/delete', {id});
+        if(!r) return;
+        rcRow(id)?.remove();
+        delete rcData[id];
+        rcAfterChange();
+        showToast('Reçete silindi');
+    }
+
+    // ===== İPTAL EDİLENLER (cancellation log) =====
+    async function renderCancels() {
+        const today = todayYMD();
+        document.getElementById('content').innerHTML = `
+            <div class="page-title">İptal Edilenler</div>
+            <div class="page-sub">Kasada ve garson ekranında nedeniyle birlikte iptal edilen tüm ürünler.</div>
+            <div class="card" style="margin-bottom:14px;">
+                <div class="rng-quick">
+                    <button onclick="setCxRange('today')">Bugün</button>
+                    <button onclick="setCxRange('last7')">Son 7 gün</button>
+                    <button onclick="setCxRange('thisMonth')">Bu ay</button>
+                </div>
+                <div class="task-add rng-row" style="margin-bottom:0;">
+                    <label>Başlangıç <input type="date" id="cxStart" value="${today}" max="${today}"></label>
+                    <label>Bitiş <input type="date" id="cxEnd" value="${today}" max="${today}"></label>
+                    <button onclick="loadCancels()">Göster</button>
+                </div>
+            </div>
+            <div class="card" style="padding-bottom:4px;"><div class="stat-row" id="cxCards"></div></div>
+            <div class="card" style="margin-top:14px;">
+                <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">🚫</span> Ayrıntılar <span id="cxCount" style="color:var(--muted);font-weight:normal;"></span></h3>
+                <div style="overflow-x:auto;">
+                <table class="cx-table">
+                    <thead><tr><th>Tarih</th><th>Saat</th><th>Masa</th><th>Ürün</th><th>Adet</th><th>Birim</th><th>Tutar</th><th>Neden</th><th>Not</th><th>Tür</th><th>Kim</th></tr></thead>
+                    <tbody id="cxBody"><tr><td colspan="11"><div class="empty-note">Yükleniyor…</div></td></tr></tbody>
+                </table>
+                </div>
+            </div>`;
+        loadCancels();
+    }
+
+    function setCxRange(kind) {
+        const t = new Date(); t.setHours(12,0,0,0);
+        let s = new Date(t);
+        if(kind === 'last7') s.setDate(t.getDate() - 6);
+        else if(kind === 'thisMonth') s.setDate(1);
+        document.getElementById('cxStart').value = ymd(s);
+        document.getElementById('cxEnd').value = ymd(t);
+        loadCancels();
+    }
+
+    async function loadCancels() {
+        const s = document.getElementById('cxStart').value, e = document.getElementById('cxEnd').value;
+        if(!s || !e) { showToast('Başlangıç ve bitiş tarihini seçin'); return; }
+        if(e < s) { showToast('Bitiş tarihi başlangıçtan önce olamaz'); return; }
+        let d;
+        try {
+            const res = await authFetch(`/cancellations?start=${s}&end=${e}`);
+            d = await res.json().catch(() => ({}));
+            if(!res.ok) { showToast(typeof d.detail === 'string' ? d.detail : 'Yüklenemedi'); return; }
+        } catch(err) { showToast('Sunucuya ulaşılamadı!'); return; }
+        if(currentPage !== 'cancels') return;
+        const tl = (x) => `${(x || 0).toFixed(0)} ₺`;
+        document.getElementById('cxCards').innerHTML =
+            `<div class="stat"><div class="label">Toplam iptal</div><div class="value">${d.totals.count}</div>
+                <div style="font-size:12px;color:var(--muted);">${+d.totals.qty.toFixed(2)} adet · ${tl(d.totals.amount)}</div></div>` +
+            d.by_reason.map(b => `<div class="stat"><div class="label">${esc(b.reason)}</div><div class="value" style="color:var(--red);">${b.count}</div>
+                <div style="font-size:12px;color:var(--muted);">${+b.qty.toFixed(2)} adet · ${tl(b.amount)}</div></div>`).join('');
+        document.getElementById('cxCount').textContent = d.rows.length ? `(${d.rows.length})` : '';
+        const p = n => String(n).padStart(2, '0');
+        document.getElementById('cxBody').innerHTML = d.rows.length ? d.rows.map(r => {
+            const dt = new Date(r.cancelled_at);
+            return `<tr>
+                <td>${p(dt.getDate())}-${p(dt.getMonth()+1)}-${dt.getFullYear()}</td>
+                <td>${p(dt.getHours())}:${p(dt.getMinutes())}</td>
+                <td><b>${esc(String(r.table_label || r.table_no).replace(/^Masa (\d+)$/, '$1'))}</b></td>
+                <td>${esc(r.product_name)}</td>
+                <td>${+r.quantity.toFixed(2)}</td>
+                <td>${tl(r.unit_price)}</td>
+                <td><b>${tl(r.amount)}</b></td>
+                <td><span class="cx-reason-tag">${esc(r.reason)}</span></td>
+                <td style="color:var(--muted);">${esc(r.note || '')}</td>
+                <td>${r.kind === 'order' ? 'Adisyon' : 'Ürün'}</td>
+                <td>${r.cancelled_by === 'waiter' ? 'Garson' : 'Kasa'}</td>
+            </tr>`; }).join('')
+            : '<tr><td colspan="11"><div class="empty-note">Bu tarihlerde iptal yok</div></td></tr>';
     }
 
     // ===== REPORTS =====
@@ -899,10 +1448,26 @@
         const ym = today.slice(0,7);   // YYYY-MM
         document.getElementById('content').innerHTML = `
             <div class="page-title">Raporlar</div>
-            <div class="page-sub">Günlük ve aylık raporları PDF olarak indirin.</div>
+            <div class="page-sub">Günlük, aylık veya istediğiniz tarih aralığı için PDF raporları.</div>
+            <div class="card" style="margin-bottom:14px;">
+                <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">🗓️</span> Tarih Aralığı Raporu</h3>
+                <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+                    Seçtiğiniz dönemin geliri, giderleri, net kârı, satılan ürünleri ve günlük dökümü (en fazla 366 gün).</p>
+                <div class="rng-quick">
+                    <button onclick="setRange('thisMonth')">Bu ay</button>
+                    <button onclick="setRange('lastMonth')">Geçen ay</button>
+                    <button onclick="setRange('last7')">Son 7 gün</button>
+                    <button onclick="setRange('last30')">Son 30 gün</button>
+                </div>
+                <div class="task-add rng-row" style="margin-bottom:0;">
+                    <label>Başlangıç <input type="date" id="rangeStart" value="${ym}-01" max="${today}" onchange="syncRangeMin()"></label>
+                    <label>Bitiş <input type="date" id="rangeEnd" value="${today}" min="${ym}-01" max="${today}"></label>
+                    <button onclick="genRange()">Dönem PDF</button>
+                </div>
+            </div>
             <div class="home-grid">
                 <div class="card">
-                    <h3>📄 Günlük Rapor</h3>
+                    <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📄</span> Günlük Rapor</h3>
                     <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
                         Satılan ürünler, adetler ve nakit/kart toplamları.</p>
                     <div class="task-add" style="margin-bottom:0;">
@@ -911,7 +1476,7 @@
                     </div>
                 </div>
                 <div class="card">
-                    <h3>📚 Aylık Rapor</h3>
+                    <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📚</span> Aylık Rapor</h3>
                     <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
                         Aylık gelir, günlük döküm, giderler ve tamamlanan işler.</p>
                     <div class="task-add" style="margin-bottom:0;">
@@ -925,7 +1490,12 @@
     async function downloadPdf(url, fallbackName) {
         try {
             const res = await authFetch(url);
-            if(!res.ok) throw new Error();
+            if(!res.ok) {
+                // Show the server's reason (e.g. "Bitiş tarihi başlangıçtan önce olamaz").
+                const d = await res.json().catch(() => ({}));
+                showToast(typeof d.detail === 'string' ? d.detail : 'Rapor oluşturulamadı');
+                return;
+            }
             const blob = await res.blob();
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -939,6 +1509,30 @@
         const d = document.getElementById('dailyDate').value || todayYMD();
         downloadPdf('/reports/daily?date=' + d, 'gunluk_' + d + '.pdf');
     }
+    // ---- Date-range report ----
+    function setRange(kind) {
+        const t = new Date(); t.setHours(12,0,0,0);           // noon: no DST edge cases
+        let s = new Date(t), e = new Date(t);
+        if(kind === 'thisMonth') { s.setDate(1); }
+        else if(kind === 'lastMonth') { s = new Date(t.getFullYear(), t.getMonth()-1, 1, 12); e = new Date(t.getFullYear(), t.getMonth(), 0, 12); }
+        else if(kind === 'last7')  { s.setDate(t.getDate() - 6); }
+        else if(kind === 'last30') { s.setDate(t.getDate() - 29); }
+        document.getElementById('rangeStart').value = ymd(s);
+        document.getElementById('rangeEnd').value = ymd(e);
+        syncRangeMin();
+    }
+    function syncRangeMin() {
+        // the date picker can't offer an end date before the start date
+        const s = document.getElementById('rangeStart').value;
+        if(s) document.getElementById('rangeEnd').min = s;
+    }
+    function genRange() {
+        const s = document.getElementById('rangeStart').value;
+        const e = document.getElementById('rangeEnd').value;
+        if(!s || !e) { showToast('Başlangıç ve bitiş tarihini seçin'); return; }
+        if(e < s) { showToast('Bitiş tarihi başlangıçtan önce olamaz'); return; }
+        downloadPdf(`/reports/range?start=${s}&end=${e}`, `rapor_${s}_${e}.pdf`);
+    }
     function genMonthly() {
         const ym = document.getElementById('monthlyMonth').value || todayYMD().slice(0,7);
         const [y,m] = ym.split('-');
@@ -951,12 +1545,15 @@
     async function renderHome() {
         const now=new Date(); if(calYear==null){calYear=now.getFullYear();calMonth=now.getMonth();}
         document.getElementById('content').innerHTML = `
-            <div class="page-title">Anasayfa</div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;">
+                <div class="page-title">Anasayfa</div>
+                <div id="homeClock" class="home-clock">${clockText()}</div>
+            </div>
             <div class="page-sub" id="homeSub"></div>
             <div id="stockAlert"></div>
             <div class="home-grid">
                 <div>
-                    <div class="card" id="summaryCard"><h3>Bugünün Özeti</h3><div class="empty-note">Yükleniyor…</div></div>
+                    <div class="card" id="summaryCard"><h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📈</span> Bugünün Özeti</h3><div class="empty-note">Yükleniyor…</div></div>
                 </div>
                 <div>
                     <div class="card">
@@ -999,7 +1596,7 @@
                 ? `<ul class="top-items">${s.top_items.map(i=>`<li><span>${esc(i.name)}</span><span class="q">${i.qty}</span></li>`).join('')}</ul>`
                 : '<div class="empty-note">Bugün henüz satış yok</div>';
             document.getElementById('summaryCard').innerHTML = `
-                <h3>Bugünün Özeti</h3>
+                <h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📈</span> Bugünün Özeti</h3>
                 <div class="stat-row">
                     <div class="stat"><div class="label">Ciro</div><div class="value">${s.revenue.toFixed(0)} ₺</div></div>
                     <div class="stat"><div class="label">Satış</div><div class="value">${s.sale_count}</div></div>
@@ -1009,7 +1606,7 @@
                     <div class="stat"><div class="label">Nakit</div><div class="value green">${s.cash.toFixed(0)} ₺</div></div>
                     <div class="stat"><div class="label">Kart</div><div class="value blue">${s.card.toFixed(0)} ₺</div></div>
                 </div>
-                <h3 style="margin-top:18px;">En Çok Satanlar</h3>
+                <h3 style="margin-top:18px;font-size:18px;color:var(--ink);"><span style="font-size:23px;">🏆</span> En Çok Satanlar</h3>
                 ${items}`;
             // Stock-check reminder on Wednesday & Saturday, + low-stock warning anytime.
             const al = document.getElementById('stockAlert');
@@ -1019,13 +1616,22 @@
                     banners += `<div class="alert-banner" onclick="nav('stock',document.querySelector('[data-page=stock]'))">
                         🗓️ Bugün stok sayım günü! Stoğu kontrol edin →</div>`;
                 }
+                // Coffee machine: red when maintenance is due, amber at 90 %.
+                const goCoffee = `onclick="nav('coffee',document.querySelector('[data-page=coffee]'))"`;
+                if(s.coffee_due) {
+                    banners += `<div class="alert-banner low" ${goCoffee}>
+                        ☕ Kahve makinesi bakım zamanı! (${s.coffee_count}/${s.coffee_threshold} kahve) →</div>`;
+                } else if(s.coffee_near) {
+                    banners += `<div class="alert-banner" ${goCoffee}>
+                        ☕ Kahve makinesi bakımı yaklaşıyor (${s.coffee_count}/${s.coffee_threshold} kahve) →</div>`;
+                }
                 if(s.low_stock_count > 0) {
                     banners += `<div class="alert-banner low" onclick="nav('stock',document.querySelector('[data-page=stock]'))">
                         ⚠️ ${s.low_stock_count} ürün düşük stokta! →</div>`;
                 }
                 al.innerHTML = banners;
             }
-        } catch(e){ document.getElementById('summaryCard').innerHTML='<h3>Bugünün Özeti</h3><div class="empty-note">Yüklenemedi</div>'; }
+        } catch(e){ document.getElementById('summaryCard').innerHTML='<h3 style="font-size:18px;color:var(--ink);"><span style="font-size:23px;">📈</span> Bugünün Özeti</h3><div class="empty-note">Yüklenemedi</div>'; }
     }
 
     function calPrev(){ calMonth--; if(calMonth<0){calMonth=11;calYear--;} loadMonth().then(renderCalendar); }
@@ -1107,14 +1713,162 @@
         await loadMonth(); renderCalendar(); renderDayTasks();
     }
 
+    // ===== AYARLAR → MASALAR (areas + table numbers) =====
+    // Only the #tablesEditor card is redrawn after a change — the menu editor
+    // below (and anything typed there) is never touched.
+    let tablesData = null;
+
+    async function tPost(url, body) {
+        let res;
+        try {
+            res = await authFetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+        } catch(e) { showToast('Sunucuya ulaşılamadı!'); return null; }
+        const d = await res.json().catch(() => ({}));
+        if(!res.ok) { showToast(typeof d.detail === 'string' ? d.detail : 'Geçersiz bilgi'); return null; }
+        return d;
+    }
+
+    async function loadTablesSettings() {
+        const el = document.getElementById('tablesEditor');
+        if(!el) return;
+        try {
+            const res = await authFetch('/tables/all');
+            if(!res.ok) throw new Error();
+            tablesData = await res.json();
+        } catch(e) { el.innerHTML = '<div class="empty-note">Masalar yüklenemedi</div>'; return; }
+        const total = tablesData.areas.reduce((n, a) => n + a.tables.length, 0);
+        document.getElementById('tablesCount').textContent = `(${tablesData.areas.length} bölge · ${total} masa)`;
+        el.innerHTML = (tablesData.areas.length ? tablesData.areas.map(a => `
+            <div class="ta-area" data-area="${a.id}">
+                <div class="ta-head">
+                    <input class="ta-name" id="taName_${a.id}" maxlength="40" value="${esc(a.name)}"
+                           onkeydown="if(event.key==='Enter')renameArea(${a.id})">
+                    <button class="btn-save-sm" onclick="renameArea(${a.id})">Adı kaydet</button>
+                    <span class="ta-count">${a.tables.length} masa</span>
+                    <button class="ta-del-area" onclick="deleteArea(${a.id})">🗑 Bölgeyi sil</button>
+                </div>
+                <div class="ta-chips">
+                    ${a.tables.length ? a.tables.map(t => `
+                        <span class="ta-chip${t.open ? ' open' : ''}" id="taChip_${t.no}"
+                              title="${t.open ? 'Açık adisyon var — silinemez, adı değiştirilebilir' : esc(t.label)}">${esc(t.name)}${t.open ? ' <span class="dot">●</span>' : ''}<button
+                              onclick="startRenameTable(${t.no})" title="Adını değiştir">✎</button>${t.open ? '' :
+                              `<button onclick="deleteTable(${t.no})" title="${esc(t.label)} sil">✕</button>`}</span>`
+                      ).join('') : '<span class="empty-note" style="padding:4px 0;">Bu bölgede masa yok</span>'}
+                </div>
+                <div class="ta-add">
+                    <input id="taAdd_${a.id}" maxlength="200" placeholder="Masa ekle: 16  ·  16-20, 25  ·  Toplantı Masası"
+                           onkeydown="if(event.key==='Enter')addTables(${a.id})">
+                    <button onclick="addTables(${a.id})">Ekle</button>
+                </div>
+            </div>`).join('') : '<div class="empty-note">Henüz bölge yok — aşağıdan ekleyin</div>') + `
+            <div class="ta-add" style="margin-top:14px;">
+                <input id="taNewArea" maxlength="40" placeholder="Yeni bölge adı (örn. Teras)"
+                       onkeydown="if(event.key==='Enter')addArea()">
+                <button onclick="addArea()">Bölge ekle</button>
+            </div>`;
+    }
+
+    async function addArea() {
+        const el = document.getElementById('taNewArea');
+        const name = el.value.trim();
+        if(!name) { showToast('Bölge adı girin'); return; }
+        if(!await tPost('/tables/area-add', {name})) return;
+        showToast('Bölge eklendi ✓ — şimdi masa ekleyin');
+        loadTablesSettings();
+    }
+
+    async function renameArea(id) {
+        const name = document.getElementById('taName_' + id).value.trim();
+        if(!name) { showToast('Bölge adı boş olamaz'); return; }
+        if(!await tPost('/tables/area-rename', {id, name})) return;
+        showToast('Bölge adı kaydedildi ✓');
+        loadTablesSettings();
+    }
+
+    async function deleteArea(id) {
+        const a = tablesData.areas.find(x => x.id === id);
+        if(!confirm(`"${a.name}" bölgesi ve ${a.tables.length} masası silinsin mi?\n(Geçmiş satış kayıtları etkilenmez.)`)) return;
+        if(!await tPost('/tables/area-delete', {id})) return;
+        showToast('Bölge silindi');
+        loadTablesSettings();
+    }
+
+    async function addTables(areaId) {
+        const el = document.getElementById('taAdd_' + areaId);
+        const spec = el.value.trim();
+        if(!spec) { showToast('Masa numarası veya adı girin'); return; }
+        const r = await tPost('/tables/add', {area_id: areaId, spec});
+        if(!r) return;                                   // what was typed stays
+        showToast(r.added.length === 1 ? `${r.labels[0]} eklendi ✓` : `${r.added.length} masa eklendi ✓`);
+        loadTablesSettings();
+    }
+
+    function findTable(no) {
+        for(const a of (tablesData ? tablesData.areas : [])) {
+            const t = a.tables.find(x => x.no === no);
+            if(t) return t;
+        }
+        return null;
+    }
+
+    // ✎ on a chip → inline box. Only the NAME changes: the table keeps its
+    // internal number, so printed QR codes and an open bill stay as they are.
+    function startRenameTable(no) {
+        const t = findTable(no), chip = document.getElementById('taChip_' + no);
+        if(!t || !chip) return;
+        chip.className = 'ta-chip editing';
+        chip.innerHTML = `<input id="taRen_${no}" maxlength="30" value="${esc(t.name)}"
+                onkeydown="if(event.key==='Enter')renameTable(${no}); if(event.key==='Escape')loadTablesSettings();">
+            <button class="ok" onclick="renameTable(${no})" title="Kaydet">✓ Kaydet</button>
+            <button onclick="loadTablesSettings()" title="Vazgeç">Vazgeç</button>`;
+        const inp = document.getElementById('taRen_' + no);
+        inp.focus(); inp.select();
+    }
+
+    async function renameTable(no) {
+        const inp = document.getElementById('taRen_' + no);
+        const name = inp ? inp.value.trim() : '';
+        if(!name) { showToast('Masa adı boş olamaz'); return; }
+        const t = findTable(no);
+        if(t && t.name === name) { loadTablesSettings(); return; }
+        const r = await tPost('/tables/rename', {table_no: no, name});
+        if(!r) return;                                   // box stays open with what was typed
+        showToast(`Masa adı kaydedildi: ${r.label} ✓`);
+        loadTablesSettings();
+    }
+
+    async function deleteTable(no) {
+        const t = findTable(no), label = t ? t.label : `Masa ${no}`;
+        if(!confirm(`${label} silinsin mi?\n(Geçmiş satış kayıtları etkilenmez.)`)) return;
+        if(!await tPost('/tables/delete', {table_no: no})) return;
+        showToast(`${label} silindi`);
+        loadTablesSettings();
+    }
+
     // ===== AYARLAR (Menu settings) =====
     let menuData = null;
 
     function renderSettings() {
         document.getElementById('content').innerHTML = `
-            <div class="page-title">Ayarlar — Menü</div>
-            <div class="page-sub">Ürün fiyatlarını düzenleyin, ürün veya bölüm ekleyin/silin.
+            <div class="page-title">Ayarlar</div>
+            <div class="page-sub">Masaları ve menüyü düzenleyin.
                 Değişiklikler POS, garson ve QR ekranları yenilendiğinde geçerli olur.</div>
+            <div class="card" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div>
+                    <h3 style="margin:0 0 4px;">🔳 Masa QR Kodları</h3>
+                    <div class="page-sub" style="margin:0;">Tüm masaların QR kodlarını tek sayfada açıp yazdırın.</div>
+                </div>
+                <a href="/qr-codes" target="_blank"
+                   style="padding:10px 18px;background:var(--ink);color:var(--cream);border-radius:8px;font-weight:bold;text-decoration:none;">QR kodlarını aç / yazdır</a>
+            </div>
+            <div class="card" style="margin-bottom:16px;">
+                <h3>🪑 Masalar ve Bölgeler <span id="tablesCount" style="color:var(--muted);font-weight:normal;"></span></h3>
+                <div class="page-sub" style="margin:0 0 10px;">Masa eklerken numara (16, 16-20) veya isim (Toplantı Masası) yazın; isimler tüm bölgelerde benzersiz olmalı.
+                    ✎ ile adı değiştirin — QR kodu ve açık adisyon aynı kalır, yeniden yazdırmak gerekmez.
+                    Açık adisyonu olan masa (●) silinemez. Yeni masalar için QR kodlarını yazdırmayı unutmayın.</div>
+                <div id="tablesEditor"><div class="empty-note">Yükleniyor…</div></div>
+            </div>
+            <div class="page-title" style="font-size:18px;margin:22px 0 10px;">Menü</div>
             <div class="card" style="margin-bottom:16px;">
                 <h3>➕ Yeni Ürün Ekle</h3>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -1131,6 +1885,7 @@
                 <div class="page-sub" style="margin:8px 0 0;">Yeni bir bölüm adı yazarsanız o bölüm otomatik oluşturulur.</div>
             </div>
             <div id="menuSections"><div class="empty-note">Yükleniyor…</div></div>`;
+        loadTablesSettings();
         loadMenuSettings();
     }
 

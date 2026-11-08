@@ -99,6 +99,9 @@
         }
         document.getElementById('tableLabel').innerText = 'Masa ' + TABLE;
         const cfg = await (await fetch('/config')).json();
+        // the café may have named this table ("Toplantı Masası") in Ayarlar → Masalar
+        const nm = (cfg.table_names || {})[String(TABLE)];
+        if(nm) document.getElementById('tableLabel').innerText = /^\d+$/.test(nm) ? 'Masa ' + nm : nm;
         MENU = cfg.menu; CURRENCY = cfg.currency || '₺';
         buildMenu();
         document.getElementById('app').style.display = 'block';

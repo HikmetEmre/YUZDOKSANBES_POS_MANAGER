@@ -1,10 +1,40 @@
-# YUZDOKSANBES POS — Python dependencies
+# YUZDOKSANBES POS — Python dependencies (FROZEN for v1.4.0)
 # Install with:  install.bat   (or:  pip install -r requirements.txt)
-# Versions are the known-good lower bounds this app was built/tested against.
+#
+# Exact versions = the ones the whole app was tested with. Do not loosen them
+# casually; to upgrade, change a pin, run every test, then rebuild the installer.
+# The FULL list (incl. every sub-dependency + the build tool) is pinned in
+# yuzdoksanbes_setup/requirements.lock — the installer is built from that file.
 
-fastapi>=0.137,<1.0      # web framework (pulls in starlette)
-uvicorn>=0.49            # ASGI server that actually runs the app
-pydantic>=2.13,<3.0      # request validation (v2 API is required)
-fpdf2>=2.8               # PDF reports (imported as `fpdf`)
-qrcode>=8.0              # table QR codes
-pillow>=10.0             # image backend used by qrcode.make()
+fastapi==0.137.1      # web framework (pulls in starlette)
+uvicorn==0.49.0       # ASGI server that actually runs the app
+pydantic==2.13.4      # request validation (v2 API is required)
+fpdf2==2.8.7          # PDF reports (imported as `fpdf`)
+qrcode==8.2           # table QR codes
+pillow==12.2.0        # image backend used by qrcode.make()
+zeroconf==0.153.0     # mDNS: announces http://siparis.local on the café WiFi
+
+
+How it works:
+- While the POS runs, it redraws one phone-sized picture, canli_durum.png, every 30 seconds.
+- It goes into a pos-monitor folder in that PC's Google Drive, created automatically and found the same way as the backups: G:\Drive'ım\pos-monitor\ on Turkish PCs, G:\My Drive\pos-monitor\ on yours.
+- It overwrites the same file each time, so the Drive link stays the same and old pictures never pile up. Stray copies Drive sometimes makes (e.g. canli_durum (1).png) are deleted automatically.
+
+What the picture shows (preview at C:\Users\hikme\AppData\Local\Temp\claude\31595605043e0450\94be29bb-7ee3-4a10-b4b8-b2d47faf46e0\scratchpad\shots\monitor_fixed.png):
+- open table count, open total, today's revenue, and today's cancellations (count and ₺);
+- every open table, longest first, with its area, how long it's been open ("8 dk", "1 sa 15 dk", "1 gün 2 sa"), its total or remaining amount if part-paid, and a "QR bekliyor" tag;
+- today's cancellations: time, table, product, quantity, reason and amount;
+- the last-updated time at the top, so you can tell if the POS has stopped.
+
+How you view it: open the Dr
+
+Important for client cafés: the picture lands in the Google account signed in on that café's PC. That's also why I didn't use your folder link: its ID belongs to your account and doesn't exist on a client's PC. To see it from your own phone, share their pos-monitor folder with your Google account once in Drive, or sign the café PC in with your account.
+
+Testing:
+- The test server wrote the picture straight away, rewrote it after 30 seconds, and deleted a planted stray copy. The numbers matched the test data.
+- I fixed three things in the picture: a missing clock symbol in the font, "BUGÜN İPTAL" spelling, and day-length durations.
+- The build self-test now draws the picture too, so a missing library would stop the installer build.
+- All 8 browser suites still pass.
+- Nothing was written to your real Drive. On this PC the target resolves to G:\My Drive\pos-monitor, but that folder only appears once a real POS with this version runs.
+
+Settings in config.py: MONITOR_ENABLED, MONITOR_EVERY_SEC (30), MONITOR_FOLDER_NAME. The POS_MONITOR_DIR setting can send it to another folder, or turn it off if left empty. Drive keeps older versions of the overwritten file for a while (up to 100, about 64 KB each), which is negligible.

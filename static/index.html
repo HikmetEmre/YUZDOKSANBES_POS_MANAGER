@@ -5,7 +5,7 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>YUZDOKSANBES POS</title>
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=3">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
         <div class="modal-box">
             <h2>YUZDOKSANBES</h2>
             <p>POS sistemine giriş yapın</p>
-            <input type="password" id="pinInput" maxlength="8" placeholder="••••" autofocus>
+            <input type="password" id="pinInput" maxlength="16" placeholder="Şifre" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus>
             <div id="pinError"></div>
             <button class="modal-btn" onclick="checkPin()" style="width:100%;margin-top:4px;">Giriş</button>
         </div>
@@ -104,6 +104,7 @@
             <button class="tab-btn active" id="tabPos"   onclick="showTab('pos')">POS</button>
             <button class="tab-btn"        id="tabPending" onclick="showTab('pending')">Bekleyen <span id="pendingBadge" class="pending-badge" style="display:none;">0</span></button>
             <button class="tab-btn"        id="tabSales" onclick="showTab('sales')">Satışlar</button>
+            <button class="tab-btn"        id="tabCancels" onclick="showTab('cancels')">İptaller</button>
             <button class="tab-btn logout-btn" onclick="logout()" title="Çıkış">⎋ Çıkış</button>
         </div>
     </div>
@@ -175,6 +176,21 @@
         </div>
     </div>
 
+    <!-- ══════════════ İPTALLER VIEW (cancellation log) ══════════════ -->
+    <div id="cancelView">
+        <div class="sales-title">İPTAL EDİLENLER</div>
+        <div class="cx-toolbar">
+            <label style="font-weight:600;font-size:13px;">Tarih <input type="date" id="cancelDate" onchange="loadCancels()"></label>
+            <div class="cx-chips" id="cancelChips"></div>
+        </div>
+        <div class="sales-table-wrap">
+            <table class="sales-table">
+                <thead><tr><th>SAAT</th><th>MASA</th><th>ÜRÜN</th><th>ADET</th><th>TUTAR</th><th>NEDEN</th><th>TÜR</th><th>KİM</th></tr></thead>
+                <tbody id="cancelTableBody"><tr><td colspan="8" style="text-align:center;padding:24px;color:#bbb;">Yükleniyor...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- ══════════════ SALES VIEW ══════════════ -->
     <div id="salesView">
 
@@ -219,6 +235,9 @@
 
     </div>
 
-    <script src="/app.js"></script>
+    <script src="/order_alerts.js?v=2"></script>
+    <script src="/duration.js?v=2"></script>
+    <script src="/cancel_dialog.js?v=1"></script>
+    <script src="/app.js?v=9"></script>
 </body>
 </html>

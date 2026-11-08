@@ -53,11 +53,26 @@
 
         function authFetch(url, opts = {}) {
             opts.headers = opts.headers || {};
-            if(AUTH_TOKEN) opts.headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
-            return fetch(url, opts);
+            const sent = AUTH_TOKEN;
+            if(sent) opts.headers['Authorization'] = 'Bearer ' + sent;
+            return fetch(url, opts).then(res => {
+                // 401 = session no longer valid (passwords changed at install, or
+                // 24 h expiry) → back to the password screen instead of errors.
+                if(res.status === 401 && sent) { sessionExpired(); return new Promise(() => {}); }  // page reloads; callers never see the 401
+                return res;
+            });
+        }
+        let _expiring = false;
+        function sessionExpired() {
+            if(_expiring) return; _expiring = true;
+            ['pos_token', 'pos_role', 'pos_auth'].forEach(k => sessionStorage.removeItem(k));
+            AUTH_TOKEN = null; MY_ROLE = null;
+            alert('Oturum sona erdi (şifre değişmiş olabilir). Lütfen yeniden giriş yapın.');
+            location.reload();
         }
 
         async function checkPin() {
+            OrderAlerts.unlockAudio();   // unlock the bell inside this click, before any await
             const val = document.getElementById('pinInput').value;
             try {
                 const res = await fetch('/auth', {
@@ -75,7 +90,7 @@
                     document.getElementById('pinModal').style.display = 'none';
                     init();
                 } else {
-                    document.getElementById('pinError').innerText = 'Hatalı PIN, tekrar deneyin.';
+                    document.getElementById('pinError').innerText = 'Hatalı şifre, tekrar deneyin.';
                     document.getElementById('pinInput').value = '';
                 }
             } catch(e) {
@@ -92,6 +107,8 @@
             ALL_TABLES = AREAS.flatMap(a => a.tables);   // every table number, for status refresh
             CURRENCY = cfg.currency;
             MENU     = cfg.menu;
+            TableNames.set(cfg.table_names);             // "12" / "Toplantı Masası" (Ayarlar → Masalar)
+            CancelDialog.init(cfg);                      // cancel reasons (Yanlış Ürün, Soğuk/Eksik, Diğer)
             buildTables();
             buildMenu();
         }
@@ -108,7 +125,9 @@
                 grids += `<div class="tables area-grid" id="areaGrid_${area.id}"
                                style="display:${idx === 0 ? 'flex' : 'none'};">`;
                 area.tables.forEach(n => {
-                    grids += `<button class="table-btn" onclick="selectTable(${n})" id="t${n}">${n}</button>`;
+                    const named = TableNames.isNamed(n);
+                    grids += `<button class="table-btn${named ? ' t-named' : ''}" onclick="selectTable(${n})" id="t${n}"
+                                      title="${esc(TableNames.label(n))}">${esc(TableNames.short(n))}</button>`;
                 });
                 grids += `</div>`;
             });
@@ -149,9 +168,18 @@
         async function init() {
             await loadConfig();
             await loadAllTables();
+            // Shared new-QR-order alert (same as the waiter page, see
+            // order_alerts.js): bell + OS notification within ~8 s, then refresh
+            // tables (red table + area signal + badge) and the Bekleyen list.
+            OrderAlerts.start({
+                authFetch, isLoggedIn: () => !!AUTH_TOKEN,
+                onNewOrder: () => {
+                    showToast('🔔 Yeni sipariş geldi!', 'success');
+                    loadAllTables();
+                    if(document.getElementById('pendingView').style.display === 'block') loadPending();
+                }
+            });
         }
-
-        let _prevPendingCount = 0;   // tracks last known pending count to detect new arrivals
 
         async function loadAllTables() {
             try {
@@ -169,21 +197,20 @@
                     const el = document.getElementById('t' + n);
                     if(el) el.classList.add('pending');
                 });
+                // Red signal on the area tab holding a table with a new QR order.
+                const pendSet = new Set((data.pending_tables || []).map(String));
+                AREAS.forEach(a => {
+                    const tab = document.getElementById('areaTab_' + a.id);
+                    if(tab) tab.classList.toggle('alert', a.tables.some(n => pendSet.has(String(n))));
+                });
+                // Open-duration under every occupied table ("32 dk").
+                Duration.paintButtons(data.open_seconds, ALL_TABLES);
                 // Update the Bekleyen tab badge from the same data.
                 const badge = document.getElementById('pendingBadge');
                 const np = (data.pending_tables || []).length;
                 if(np > 0) { badge.innerText = np; badge.style.display = 'inline-block'; }
                 else       { badge.style.display = 'none'; }
 
-                // Ring the bell only when a NEW pending QR order arrives.
-                if(np > _prevPendingCount) {
-                    try {
-                        const bell = new Audio('/order_bell.mp3');
-                        bell.volume = 0.8;
-                        bell.play();
-                    } catch(e) { /* audio blocked — silently ignore */ }
-                }
-                _prevPendingCount = np;
             } catch(e) {
                 showToast('Masa durumu yüklenemedi!', 'error');
             }
@@ -222,11 +249,14 @@
             document.getElementById('posView').style.display     = tab === 'pos'     ? 'block' : 'none';
             document.getElementById('pendingView').style.display = tab === 'pending' ? 'block' : 'none';
             document.getElementById('salesView').style.display   = tab === 'sales'   ? 'block' : 'none';
+            document.getElementById('cancelView').style.display  = tab === 'cancels' ? 'block' : 'none';
             document.getElementById('tabPos').classList.toggle('active',     tab === 'pos');
             document.getElementById('tabPending').classList.toggle('active', tab === 'pending');
             document.getElementById('tabSales').classList.toggle('active',   tab === 'sales');
+            document.getElementById('tabCancels').classList.toggle('active', tab === 'cancels');
             if(tab === 'sales')   loadSales();
             if(tab === 'pending') loadPending();
+            if(tab === 'cancels') loadCancels();
         }
 
         // ════════════ PENDING (Bekleyen) — QR customer orders ════════════
@@ -249,7 +279,7 @@
                     });
                     html += `<div class="pend-card">
                         <div class="pend-head">
-                            <span>Masa ${t.table_no}</span>
+                            <span>${esc(TableNames.label(t.table_no))}</span>
                             <span>${total.toFixed(0)} ₺</span>
                         </div>
                         ${items}
@@ -271,7 +301,7 @@
                     body: JSON.stringify({table_no: tableNo})
                 });
                 if(!res.ok) throw new Error();
-                showToast('Masa ' + tableNo + ' onaylandı ✓', 'success');
+                showToast(TableNames.label(tableNo) + ' onaylandı ✓', 'success');
                 loadPending();
                 loadAllTables();
                 // If the accepted table is currently open in POS, refresh its cart.
@@ -281,7 +311,7 @@
         }
 
         async function refusePending(tableNo) {
-            if(!confirm('Masa ' + tableNo + ' müşteri siparişini reddet?')) return;
+            if(!confirm(TableNames.label(tableNo) + ' müşteri siparişini reddet?')) return;
             showLoading();
             try {
                 const res = await authFetch('/refuse-order', {
@@ -289,7 +319,7 @@
                     body: JSON.stringify({table_no: tableNo})
                 });
                 if(!res.ok) throw new Error();
-                showToast('Masa ' + tableNo + ' reddedildi', 'success');
+                showToast(TableNames.label(tableNo) + ' reddedildi', 'success');
                 loadPending();
                 loadAllTables();
                 if(currentTable === tableNo) selectTable(tableNo);
@@ -313,8 +343,8 @@
             if(currentTable) document.getElementById('t' + currentTable).classList.remove('selected');
             currentTable = n;
             document.getElementById('t' + n).classList.add('selected');
-            document.getElementById('selectedTable').innerText = 'Masa ' + n;
-            document.getElementById('orderTime').innerText = '';
+            document.getElementById('selectedTable').innerText = TableNames.label(n);
+            Duration.clearHeader(document.getElementById('orderTime'));
 
             showLoading();
             try {
@@ -339,9 +369,9 @@
                             isNew:        false
                         });
                     });
-                    const dt = data.created_at;
-                    document.getElementById('orderTime').innerText =
-                        'Açılış: ' + fmtTime(dt);
+                    // How long the table has been open (server clock), ticking.
+                    Duration.showHeader(document.getElementById('orderTime'),
+                                        data.open_seconds, data.created_at);
                 }
                 renderCart();
             } catch(e) {
@@ -462,9 +492,38 @@
             renderCart();
         }
 
-        function removeItem(idx) {
-            cart.splice(idx, 1);
-            renderCart();
+        async function removeItem(idx) {
+            const item = cart[idx];
+            if(item.isNew) { cart.splice(idx, 1); renderCart(); return; }   // not saved yet → no reason needed
+            const choice = await CancelDialog.open({
+                title: `${item.product_name} ×${item.quantity} — ${TableNames.label(currentTable)}`,
+                maxQty: item.quantity
+            });
+            if(!choice) return;                                              // Vazgeç
+            showLoading();
+            try {
+                const res = await authFetch('/remove-item', {
+                    method:  'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body:    JSON.stringify({table_no: currentTable, item_id: item.id,
+                                             qty: choice.qty, reason: choice.reason, note: choice.note})
+                });
+                if(!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    showToast(d.detail || 'Silinemedi!', 'error');
+                    return;
+                }
+                const unsaved = cart.filter(i => i.isNew);   // keep anything not yet saved
+                await selectTable(currentTable);
+                cart.push(...unsaved); renderCart();
+                loadAllTables();                             // table turns free if now empty
+                showToast(choice.qty < item.quantity ? `${choice.qty} adet iptal edildi` : 'Ürün iptal edildi', 'success');
+                refreshCancelsIfOpen();
+            } catch(e) {
+                showToast('İptal edilemedi!', 'error');
+            } finally {
+                hideLoading();
+            }
         }
 
         
@@ -498,26 +557,76 @@
         }
 
 
+        // ════════════ İPTALLER (cancellation log tab) ════════════
+
+        function refreshCancelsIfOpen() {
+            if(document.getElementById('cancelView').style.display === 'block') loadCancels();
+        }
+
+        async function loadCancels() {
+            const dEl = document.getElementById('cancelDate');
+            if(!dEl.value) { const t = new Date(); const p = n => String(n).padStart(2, '0');
+                             dEl.value = `${t.getFullYear()}-${p(t.getMonth()+1)}-${p(t.getDate())}`; }
+            const body = document.getElementById('cancelTableBody');
+            try {
+                const res = await authFetch(`/cancellations?start=${dEl.value}&end=${dEl.value}`);
+                if(!res.ok) throw new Error();
+                const d = await res.json();
+                document.getElementById('cancelChips').innerHTML =
+                    `<span class="cx-chip">Toplam: <b>${d.totals.count}</b> · ${d.totals.amount.toFixed(0)} ₺</span>` +
+                    d.by_reason.map(b => `<span class="cx-chip">${esc(b.reason)}: <b>${b.count}</b> · ${b.amount.toFixed(0)} ₺</span>`).join('');
+                body.innerHTML = d.rows.length ? d.rows.map(r => `
+                    <tr>
+                        <td>${fmtTime(r.cancelled_at)}</td>
+                        <td><b>${esc(TableNames.short(r.table_no))}</b></td>
+                        <td>${esc(r.product_name)}</td>
+                        <td>${+r.quantity.toFixed(2)}</td>
+                        <td>${r.amount.toFixed(0)} ₺</td>
+                        <td>${esc(r.reason)}${r.note ? `: <i>${esc(r.note)}</i>` : ''}</td>
+                        <td>${r.kind === 'order' ? 'Adisyon' : 'Ürün'}</td>
+                        <td>${r.cancelled_by === 'waiter' ? 'Garson' : 'Kasa'}</td>
+                    </tr>`).join('')
+                    : '<tr><td colspan="8" style="text-align:center;padding:24px;color:#bbb;">Bu tarihte iptal yok</td></tr>';
+            } catch(e) {
+                body.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:#bbb;">Yüklenemedi</td></tr>';
+            }
+        }
+
         // ════════════ CANCEL ════════════
 
         async function cancelOrder() {
             if(!currentTable) { showToast('Masa seçin!', 'error'); return; }
-            if(!confirm('Siparişi iptal etmek istiyor musunuz?')) return;
+            if(!cart.some(i => !i.isNew)) {                 // nothing saved on this table
+                if(cart.length && confirm('Kaydedilmemiş ürünler silinsin mi?')) { cart = []; renderCart(); }
+                else if(!cart.length) showToast('Açık adisyon yok', 'error');
+                return;
+            }
+            const choice = await CancelDialog.open({
+                title: `${TableNames.label(currentTable)} — tüm adisyon iptal edilecek`,
+                maxQty: 1, confirmText: 'Adisyonu İptal Et'
+            });
+            if(!choice) return;
 
             showLoading();
             try {
                 const res = await authFetch('/cancel-order', {
                     method:  'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body:    JSON.stringify({table_no: currentTable})
+                    body:    JSON.stringify({table_no: currentTable, reason: choice.reason, note: choice.note})
                 });
-                if(!res.ok) throw new Error();
+                if(!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    showToast(d.detail || 'İptal hatası!', 'error');
+                    return;
+                }
                 document.getElementById('t' + currentTable).classList.remove('red');
-                document.getElementById('orderTime').innerText = '';
+                Duration.clearHeader(document.getElementById('orderTime'));
                 cart = [];
                 renderCart();
                 loadSales();
-                showToast('Sipariş iptal edildi', 'success');
+                loadAllTables();
+                showToast('Adisyon iptal edildi', 'success');
+                refreshCancelsIfOpen();
             } catch(e) {
                 showToast('İptal hatası!', 'error');
             } finally {
@@ -573,7 +682,7 @@
             pendingPayTotal = total;
             const label = type === 'cash' ? '💵 Nakit' : '💳 Kart';
             document.getElementById('payModalText').innerHTML =
-                `Masa <b>${currentTable}</b><br>
+                `<b>${esc(TableNames.label(currentTable))}</b><br>
                  <span style="font-size:26px;font-weight:bold;">${total.toFixed(0)} ₺</span><br>
                  <span style="font-size:13px;color:#777;">${label} ile tahsil edilecek</span>`;
             document.getElementById('payModal').style.display = 'flex';
@@ -610,7 +719,7 @@
         async function afterPayment(data) {
             if(data.order_closed) {
                 document.getElementById('t' + currentTable).classList.remove('red');
-                document.getElementById('orderTime').innerText = '';
+                Duration.clearHeader(document.getElementById('orderTime'));
                 cart = [];
                 renderCart();
             } else {
@@ -788,7 +897,7 @@
                             ? '<span class="badge cash">Nakit</span>'
                             : '<span class="badge card">Kart</span>';
                         html += `<tr>
-                            <td style="font-weight:bold;">Masa ${r.table_no}</td>
+                            <td style="font-weight:bold;">${esc(r.table_label || TableNames.label(r.table_no))}</td>
                             <td style="font-weight:bold;">${r.total_amount.toFixed(0)} ₺</td>
                             <td>${badge}</td>
                             <td style="color:#999;font-size:13px;">${str}</td>
@@ -809,11 +918,13 @@
         function showLoading() { document.getElementById('loadingOverlay').style.display = 'flex'; }
         function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
 
+        let toastTimer = null;
         function showToast(msg, type = 'success') {
             const t = document.getElementById('toast');
             t.innerText = msg;
             t.className = 'show ' + type;
-            setTimeout(() => t.className = '', 2600);
+            clearTimeout(toastTimer);   // a newer message gets its full time
+            toastTimer = setTimeout(() => t.className = '', 2600);
         }
 
         // ════════════ MIDNIGHT REFRESH ════════════
