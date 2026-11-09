@@ -82,11 +82,16 @@ Google Drive başka bir sürücü harfindeyse de bulunur. Google Drive yoksa vey
 henüz açılmadıysa yedekler yalnızca bu bilgisayarda tutulur ve Drive açılınca
 bir sonraki yedekten itibaren oraya da kopyalanır.
 
-**Otomatik günlük rapor:** her gün bittiğinde (ertesi sabah 04:00'ten sonra) o günün
+**Otomatik günlük rapor:** her gün saat 23:59'da o günün
 Günlük Rapor PDF'i kimse düğmeye basmadan kaydedilir: `reports\gunluk\gunluk_YYYY-AA-GG.pdf`
 ve Google Drive varsa `pos-reports\<bilgisayar adı>\` klasörüne. Bilgisayar kapalı kaldıysa
 eksik günler (en fazla 31 gün geriye) bir sonraki açılışta tamamlanır; hiç satış/gider
-olmayan günler için rapor oluşturulmaz. Durum: Panel → Raporlar sayfasının altında.
+olmayan günler için rapor oluşturulmaz. 23:59'dan sonra o güne ait bir ödeme veya iptal
+olursa rapor gece yarısından sonra yeniden oluşturulur. Kafe erken kapanıp Günlük Rapor
+Panel'den elle alındıysa o rapor günün raporu olarak kaydedilir ve 23:59'da tekrar oluşturulmaz. Durum: Panel → Raporlar sayfasının altında.
+
+Günlük, aylık ve dönem raporlarında **İptal Edilenler** başlığı altında iptal edilen her ürün
+(saat, masa, ürün, adet, tutar, neden) ve toplam iptal tutarı yer alır. İptaller ciroya dahil değildir.
 
 ## 7. Güncelleme
 Yeni sürümün kurulum dosyasını çalıştırmanız yeterlidir.

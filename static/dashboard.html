@@ -1499,8 +1499,9 @@
             if(!s.enabled) { box.innerHTML = '🕓 Otomatik günlük rapor: <b>kapalı</b>'; return; }
             const last = s.last_saved ? s.last_saved.split('-').reverse().join('.') : 'henüz yok';
             const where = [s.folder, ...(s.mirrors || [])].map(esc).join('<br>');
-            box.innerHTML = `🕓 <b style="color:var(--ink);">Otomatik günlük rapor</b>: her gün bittiğinde
-                (ertesi sabah ${esc(s.at)}) PDF kendiliğinden kaydedilir.
+            const when = (s.at || '') >= '12:00' ? `her gün saat ${esc(s.at)}'da` : `her gün bittiğinde (ertesi sabah ${esc(s.at)})`;
+            box.innerHTML = `🕓 <b style="color:var(--ink);">Otomatik günlük rapor</b>: ${when}
+                o günün PDF'i kendiliğinden kaydedilir; sonradan gelen ödeme/iptal olursa gece yarısından sonra güncellenir.
                 Son kaydedilen: <b style="color:var(--ink);">${esc(last)}</b> · toplam ${s.count} rapor.
                 ${s.last_error ? `<br><span style="color:#c62828;">Son hata: ${esc(s.last_error)}</span>` : ''}
                 <div style="margin-top:6px;font-size:12px;">Klasör:<br>${where}</div>`;

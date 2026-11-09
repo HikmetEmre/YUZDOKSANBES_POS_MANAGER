@@ -6,7 +6,7 @@
 
 **A self-hosted point-of-sale and café management system that runs on one Windows PC and serves every phone, tablet and QR menu on the café Wi-Fi.**
 
-![Version](https://img.shields.io/badge/version-1.4.1-2ea44f)
+![Version](https://img.shields.io/badge/version-1.4.2-2ea44f)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.137-009688?logo=fastapi&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
@@ -57,10 +57,10 @@ Everything runs offline on the café LAN. There is no cloud backend, subscriptio
 | **QR ordering** | Per-table QR codes (`/masa{n}`), orders arrive as *pending* with a bell and a desktop notification until staff accept or refuse them |
 | **Tables** | Areas (Bahçe, Salon, …), numeric **or named** tables ("Toplantı Masası"), renaming without breaking printed QR codes |
 | **Menu and recipes** | Menu sections and items edited live, recipe cards for the bar |
-| **Finance** | Revenue, expenses and manual income by category, daily, monthly and date-range **PDF reports**, plus an **automatic end-of-day report** saved locally and to Google Drive |
+| **Finance** | Revenue, expenses and manual income by category, daily, monthly and date-range **PDF reports**, plus an **automatic end-of-day report** (every day at 23:59) saved locally and to Google Drive |
 | **Stock** | Item counts, low-stock thresholds, count history |
 | **Coffee machine** | Shot counter, maintenance log and service reminders |
-| **Cancellations** | Every cancelled item is logged with who, when, why and how much |
+| **Cancellations** | Every cancelled item is logged with who, when, why and how much, and listed under **İptal Edilenler** in the daily, monthly and range reports |
 | **Live monitor** | `canli_durum.png` is redrawn every 30 seconds into Google Drive: open tables, totals and today's cancellations |
 | **Resilience** | SQLite WAL, hourly online backups with rolling retention, mirrored to Google Drive |
 | **Zero-config networking** | Announced as **`http://siparis.local`** over mDNS, so QR codes survive DHCP IP changes |
@@ -330,12 +330,13 @@ flowchart LR
     T1 --> T2["Pillow → canli_durum.png"]
     T2 --> T3["overwrite in Drive\pos-monitor<br/>and remove stray '(1)' copies"]
 
-    DR --> R1["every 10 min: any finished day<br/>(after 04:00 next morning) without a PDF?"]
+    DR --> R1["at 23:59 (and every 10 min): any day<br/>whose report is due without a PDF?"]
     R1 --> R2["_build_daily_pdf(day) →<br/>reports\gunluk\gunluk_YYYY-MM-DD.pdf"]
     R2 --> R3["mirror → Google Drive\pos-reports\PC-name<br/>(missed copies retried)"]
+    R2 --> R4["after midnight: paid/cancelled<br/>after 23:59? → PDF made again"]
 
     classDef safe fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
-    class B1,B2,B3,M1,T1,T2,T3,R1,R2,R3 safe
+    class B1,B2,B3,M1,T1,T2,T3,R1,R2,R3,R4 safe
 ```
 
 All four run as daemon threads and catch and log their own errors. A missing Google Drive, a blocked mDNS port or a full disk never stop the till.

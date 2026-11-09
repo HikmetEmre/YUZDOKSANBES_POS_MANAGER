@@ -38,6 +38,7 @@ if "--selftest" in sys.argv:
     os.environ["POS_DATA_DIR"] = tempfile.mkdtemp(prefix="yuzdoksanbes_selftest_")
     os.environ["POS_BACKUP_MIRRORS"] = ""
     os.environ["POS_MONITOR_DIR"] = ""      # self-test never writes to Google Drive
+    os.environ["POS_REPORT_MIRRORS"] = ""   # … nor daily report copies (set before ANY report)
     os.environ["POS_NO_BROWSER"] = "1"
 
 # FastAPI marks @app.on_event as deprecated (lifespan handlers replace it). It
@@ -595,17 +596,35 @@ def _startup():
 
 
 def _day_has_activity(day: str) -> bool:
-    """Anything worth a daily report on this day: a sale, an expense, extra
-    income or a task. A closed day makes no empty PDF."""
+    """Anything worth a daily report on this day: a sale, a cancellation, an
+    expense, extra income or a task. A closed day makes no empty PDF."""
     nxt = (Date.fromisoformat(day) + timedelta(days=1)).isoformat()
     with db() as conn:
         return bool(conn.execute(
             "SELECT EXISTS(SELECT 1 FROM sales_log WHERE paid_at >= ? AND paid_at < ?)"
             "    OR EXISTS(SELECT 1 FROM sold_items WHERE paid_at >= ? AND paid_at < ?)"
+            "    OR EXISTS(SELECT 1 FROM cancellations WHERE cancelled_at >= ? AND cancelled_at < ?)"
             "    OR EXISTS(SELECT 1 FROM expenses WHERE expense_date = ?)"
             "    OR EXISTS(SELECT 1 FROM manual_income WHERE income_date = ?)"
             "    OR EXISTS(SELECT 1 FROM tasks WHERE task_date = ?) AS a",
-            (day, nxt, day, nxt, day, day, day)).fetchone()["a"])
+            (day, nxt, day, nxt, day, nxt, day, day, day)).fetchone()["a"])
+
+
+def _day_changed_since(day: str, since: str) -> bool:
+    """Did anything that the daily PDF of `day` shows change after `since`
+    (ISO time the PDF was saved)? A sale/cancellation timed after it, or an
+    expense, extra income or task for that day entered after it."""
+    nxt = _next_day(day)
+    with db() as conn:
+        return bool(conn.execute(
+            "SELECT EXISTS(SELECT 1 FROM sales_log WHERE paid_at >= ? AND paid_at < ?)"
+            "    OR EXISTS(SELECT 1 FROM sold_items WHERE paid_at >= ? AND paid_at < ?)"
+            "    OR EXISTS(SELECT 1 FROM cancellations WHERE cancelled_at >= ? AND cancelled_at < ?)"
+            "    OR EXISTS(SELECT 1 FROM expenses WHERE expense_date = ? AND created_at >= ?)"
+            "    OR EXISTS(SELECT 1 FROM manual_income WHERE income_date = ? AND created_at >= ?)"
+            "    OR EXISTS(SELECT 1 FROM tasks WHERE task_date = ? AND created_at >= ?) AS a",
+            (since, nxt, since, nxt, since, nxt, day, since, day, since, day, since)
+        ).fetchone()["a"])
 
 
 def _daily_report_state():
@@ -620,7 +639,7 @@ def _set_daily_report_state(day: str) -> None:
 
 def _start_daily_reports() -> None:
     daily_reports.start(_build_daily_pdf, _day_has_activity,
-                        _daily_report_state, _set_daily_report_state)
+                        _daily_report_state, _set_daily_report_state, _day_changed_since)
 
 
 def monitor_data() -> dict:
@@ -2511,6 +2530,22 @@ def _next_day(day: str) -> str:
     return (Date.fromisoformat(day) + timedelta(days=1)).isoformat()
 
 
+def _report_cancels(conn, start: str, end_excl: str) -> list[dict]:
+    """İptal Edilenler for a report period, oldest first:
+    [{at 'YYYY-MM-DD HH:MM', table, product, qty, amount, reason}]. Cancelled
+    products are never revenue; this is the record of what was taken back and why."""
+    rows = conn.execute(
+        "SELECT cancelled_at, table_no, product_name, quantity, amount, reason, note"
+        " FROM cancellations WHERE cancelled_at >= ? AND cancelled_at < ?"
+        " ORDER BY cancelled_at, id", (start, end_excl)).fetchall()
+    return [{"at": r["cancelled_at"][:16].replace("T", " "),
+             "table": table_label(r["table_no"]),
+             "product": r["product_name"], "qty": r["quantity"], "amount": r["amount"],
+             "cause": r["reason"],
+             "reason": r["reason"] + (f': {r["note"]}' if r["note"] else "")}
+            for r in rows]
+
+
 def _build_daily_pdf(day: str) -> bytes:
     """Gather one day's full picture (sales, Ek Gelir, Gider, Görevler) and build
     the comprehensive 'Günlük Rapor' PDF."""
@@ -2521,6 +2556,7 @@ def _build_daily_pdf(day: str) -> bytes:
             (f"{day}%",)
         ).fetchall()
         sold = _sold_items(conn, day, _next_day(day))
+        cancels = _report_cancels(conn, day, _next_day(day))
         exp_rows = conn.execute(
             "SELECT category, description, quantity, unit_price, amount"
             " FROM expenses WHERE expense_date = ? ORDER BY id",
@@ -2552,7 +2588,8 @@ def _build_daily_pdf(day: str) -> bytes:
     tasks = [{"title": r["title"], "category": r["category"], "done": r["done"]} for r in task_rows]
 
     return reports.build_daily_pdf(day, sold, totals, expenses=expenses,
-                                   manual_incomes=manual_incomes, tasks=tasks)
+                                   manual_incomes=manual_incomes, tasks=tasks,
+                                   cancels=cancels)
 
 
 @app.get("/reports/daily", dependencies=[Depends(auth.require("checkout"))])
@@ -2564,6 +2601,14 @@ def report_daily(date: Optional[str] = None):
     except ValueError:
         raise HTTPException(status_code=400, detail="Geçersiz tarih (YYYY-AA-GG)")
     pdf = _build_daily_pdf(day)
+    # Made by hand → it IS that day's report: saved like the automatic one, so
+    # the 23:59 run finds it and doesn't make another. Only for days that have
+    # started and had activity; a failure here never blocks the download.
+    if config.DAILY_REPORT_ENABLED and day <= Date.today().isoformat() and _day_has_activity(day):
+        try:
+            daily_reports.save_manual(day, pdf)
+        except Exception as e:
+            log.warning("Could not save the manual daily report %s: %r", day, e)
     fname = f"gunluk_{day}.pdf"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
@@ -2603,6 +2648,7 @@ def report_range(start: Date, end: Date):
             "SELECT total_amount, payment_type, substr(paid_at,1,10) AS day FROM sales_log"
             " WHERE paid_at >= ? AND paid_at < ?", (s, e_next)).fetchall()
         sold = _sold_items(conn, s, e_next)
+        cancels = _report_cancels(conn, s, e_next)
         exp_rows = conn.execute(
             "SELECT category, description, quantity, unit_price, amount, expense_date"
             " FROM expenses WHERE expense_date >= ? AND expense_date <= ?"
@@ -2640,6 +2686,7 @@ def report_range(start: Date, end: Date):
         expenses=[_fmt_expense(r) for r in exp_rows],
         manual_incomes=[{"description": r["description"], "amount": r["amount"]} for r in mi_rows],
         done_tasks=[{"date": r["date"], "title": r["title"], "category": r["category"]} for r in task_rows],
+        cancels=cancels,
     )
     fname = f"rapor_{s}_{e}.pdf"
     return Response(content=pdf, media_type="application/pdf",
@@ -2653,6 +2700,8 @@ def report_monthly(year: Optional[int] = None, month: Optional[int] = None):
     now = datetime.now()
     y = year or now.year
     m = month or now.month
+    if not (1 <= m <= 12 and 2000 <= y <= 2100):
+        raise HTTPException(status_code=400, detail="Geçersiz ay/yıl")
     prefix = f"{y:04d}-{m:02d}"
     with db() as conn:
         rows = conn.execute(
@@ -2681,6 +2730,9 @@ def report_monthly(year: Optional[int] = None, month: Optional[int] = None):
             "SELECT description, amount FROM manual_income WHERE income_date LIKE ? ORDER BY income_date",
             (f"{prefix}%",)
         ).fetchall()
+        first = Date(y, m, 1)
+        nxt_month = (first + timedelta(days=32)).replace(day=1)
+        cancels = _report_cancels(conn, first.isoformat(), nxt_month.isoformat())
     cash = sum(r["total_amount"] for r in rows if r["payment_type"] == "cash")
     card = sum(r["total_amount"] for r in rows if r["payment_type"] == "card")
     manual_total = sum(r["amount"] for r in manual_rows)
@@ -2696,7 +2748,8 @@ def report_monthly(year: Optional[int] = None, month: Optional[int] = None):
     manual_incomes = [{"description": r["description"], "amount": r["amount"]}
                       for r in manual_rows] if manual_rows else None
     pdf = reports.build_monthly_pdf(y, m, daily_rows, totals, done_tasks,
-                                    expenses=expenses, manual_incomes=manual_incomes)
+                                    expenses=expenses, manual_incomes=manual_incomes,
+                                    cancels=cancels)
     fname = f"aylik_{prefix}.pdf"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
@@ -2910,6 +2963,10 @@ def _selftest() -> int:
             conn.execute("INSERT INTO expenses (expense_date, category, description, quantity,"
                          " unit_price, amount, created_at) VALUES (?, 'Süt', 'Şişe süt ığüşöç', 2, 50, 100, ?)",
                          (today.isoformat(), datetime.now().isoformat()))
+            conn.execute("INSERT INTO cancellations (cancelled_at, table_no, product_name, quantity,"
+                         " unit_price, amount, reason, note, kind, cancelled_by)"
+                         " VALUES (?, 11, 'Çay', 1, 40, 40, 'Diğer', 'yanlış masa ığüşöç', 'item', 'waiter')",
+                         (datetime.now().isoformat(),))
         checks = {
             "daily PDF":   report_daily(date=today.isoformat()).body,
             "monthly PDF": report_monthly(year=today.year, month=today.month).body,
@@ -2921,12 +2978,19 @@ def _selftest() -> int:
         import monitor
         checks["live monitor PNG"] = monitor.render_png(monitor_data())
         os.environ["POS_REPORT_MIRRORS"] = ""      # self-test never writes to Google Drive
+        today_file = daily_reports.local_dir() / daily_reports.file_name(today)
+        # the manual daily PDF above was saved as today's report …
+        checks["manual report saved"] = today_file.read_bytes() if today_file.exists() else b""
         tomorrow_morning = datetime.combine(today + timedelta(days=1), datetime.min.time()) + timedelta(hours=5)
         saved = daily_reports.run_once(tomorrow_morning, _build_daily_pdf, _day_has_activity,
                                        lambda: None, lambda d: None)
+        if today.isoformat() in saved:          # … so the automatic run must skip it
+            raise RuntimeError("automatic run rebuilt a manually saved report")
+        today_file.unlink()                     # and without it, the automatic run makes it
+        saved = daily_reports.run_once(tomorrow_morning, _build_daily_pdf, _day_has_activity,
+                                       lambda: None, lambda d: None)
         checks["automatic daily report"] = (
-            (daily_reports.local_dir() / daily_reports.file_name(today)).read_bytes()
-            if today.isoformat() in saved else b"")
+            today_file.read_bytes() if today.isoformat() in saved else b"")
         for name, data in checks.items():
             ok = data[:4] in (b"%PDF", b"\x89PNG")
             print(f"  {'OK  ' if ok else 'FAIL'} {name} ({len(data)} bytes)", flush=True)

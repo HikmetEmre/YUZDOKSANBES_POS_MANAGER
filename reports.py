@@ -121,11 +121,57 @@ class _Report(FPDF):
         self.set_font(self.base, "", 10)
         aligns = aligns or ["L"] * len(cells)
         for cell, w, a in zip(cells, widths, aligns):
-            self.cell(w, 6.5, self._t(cell), border=1, align=a)
+            self.cell(w, 6.5, self._fit(self._t(cell), w), border=1, align=a)
         self.ln()
+
+    def _fit(self, text, w):
+        """Shorten text that is wider than its column (so it never spills into
+        the next cell) and mark the cut with an ellipsis."""
+        if self.get_string_width(text) <= w - 2:
+            return text
+        dots = "…" if self.uni else "..."
+        while text and self.get_string_width(text + dots) > w - 2:
+            text = text[:-1]
+        return text.rstrip() + dots
 
 
 # ---------- SHARED SECTIONS ----------
+
+def _cancels_section(pdf, cancels, with_date, empty_text) -> None:
+    """'İptal Edilenler': every product cancelled in the period (time, table,
+    product, units, value, reason), its total and, when there is more than one
+    reason, a per-reason summary. Cancelled products are not revenue."""
+    pdf.section("İptal Edilenler")
+    if not cancels:
+        _empty_note(pdf, empty_text)
+        return
+    first = "Tarih" if with_date else "Saat"
+    widths = [24, 28, 50, 14, 26, 48] if with_date else [16, 30, 54, 14, 26, 50]
+    pdf.table_header([first, "Masa", "Ürün", "Adet", "Tutar", "Neden"], widths)
+    for c in cancels:
+        when = (datetime.strptime(c["at"], "%Y-%m-%d %H:%M").strftime("%d.%m %H:%M")
+                if with_date else c["at"][11:16])
+        pdf.table_row([when, c["table"], c["product"], f'{c["qty"]:g}',
+                       f'{c["amount"]:.0f} {CURRENCY}', c["reason"]],
+                      widths, ["C", "L", "L", "C", "R", "L"])
+    by = {}
+    for c in cancels:
+        b = by.setdefault(c.get("cause", c["reason"]), [0.0, 0.0])
+        b[0] += c["qty"]
+        b[1] += c["amount"]
+    if len(by) > 1:
+        pdf.ln(1)
+        for cause, (qty, amount) in sorted(by.items(), key=lambda kv: -kv[1][1]):
+            pdf.kv(f"{cause} ({qty:g} adet)", f"{amount:.0f} {CURRENCY}")
+    total_qty = sum(c["qty"] for c in cancels)
+    pdf.kv(f"TOPLAM İPTAL ({total_qty:g} adet)",
+           f'{sum(c["amount"] for c in cancels):.0f} {CURRENCY}', bold=True)
+    pdf.set_font(pdf.base, "", 8)
+    pdf.set_text_color(140, 140, 140)
+    pdf.cell(0, 5, pdf._t("İptal edilen ürünler ciroya dahil değildir."),
+             new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(26, 26, 26)
+
 
 def _manual_income_section(pdf, manual_incomes) -> None:
     """'Ek Gelirler' table (description + amount); skipped when empty.
@@ -142,7 +188,7 @@ def _manual_income_section(pdf, manual_incomes) -> None:
 # ---------- DAILY ----------
 
 def build_daily_pdf(date_str, sold_items, totals,
-                    expenses=None, manual_incomes=None, tasks=None) -> bytes:
+                    expenses=None, manual_incomes=None, tasks=None, cancels=None) -> bytes:
     """
     date_str       : 'YYYY-MM-DD'
     sold_items     : [{name, qty, total}]
@@ -151,6 +197,8 @@ def build_daily_pdf(date_str, sold_items, totals,
     expenses       : [{description, amount}]     (optional — that day's Gider)
     manual_incomes : [{description, amount}]     (optional — that day's Ek Gelir)
     tasks          : [{title, category, done}]   (optional — that day's Görevler)
+    cancels        : [{at, table, product, qty, amount, reason, cause}]
+                     (optional — that day's İptal Edilenler)
     """
     d = datetime.strptime(date_str, "%Y-%m-%d")
     pretty = d.strftime("%d-%m-%Y")
@@ -168,6 +216,9 @@ def build_daily_pdf(date_str, sold_items, totals,
     else:
         pdf.set_font(pdf.base, "", 11)
         pdf.cell(0, 7, pdf._t("Bu gün satış yok."), new_x="LMARGIN", new_y="NEXT")
+
+    # ---- Cancelled products (İptal Edilenler) ----
+    _cancels_section(pdf, cancels, with_date=False, empty_text="Bu gün iptal edilen ürün yok.")
 
     # ---- Income summary ----
     manual_total = totals.get("manual", 0)
@@ -223,8 +274,10 @@ def build_daily_pdf(date_str, sold_items, totals,
 # ---------- MONTHLY ----------
 
 def build_monthly_pdf(year, month, daily_rows, totals, done_tasks,
-                      expenses=None, manual_incomes=None) -> bytes:
+                      expenses=None, manual_incomes=None, cancels=None) -> bytes:
     """
+    cancels        : [{at, table, product, qty, amount, reason, cause}]
+                     (optional — the month's İptal Edilenler)
     daily_rows     : [{date, total}]   per-day revenue
     totals         : {cash, card, grand, count, manual}
     done_tasks     : [{date, title, category}]
@@ -257,6 +310,8 @@ def build_monthly_pdf(year, month, daily_rows, totals, done_tasks,
     else:
         pdf.set_font(pdf.base, "", 11)
         pdf.cell(0, 7, pdf._t("Bu ay satış yok."), new_x="LMARGIN", new_y="NEXT")
+
+    _cancels_section(pdf, cancels, with_date=True, empty_text="Bu ay iptal edilen ürün yok.")
 
     pdf.section("Giderler")
     pdf.set_font(pdf.base, "", 11)
@@ -305,7 +360,7 @@ def _empty_note(pdf, text):
 
 
 def build_range_pdf(start_str, end_str, sold_items, daily_rows, totals,
-                    expenses=None, manual_incomes=None, done_tasks=None) -> bytes:
+                    expenses=None, manual_incomes=None, done_tasks=None, cancels=None) -> bytes:
     """
     start_str/end_str : 'YYYY-MM-DD' (inclusive)
     sold_items        : [{name, qty, total}]       products sold in the period
@@ -315,6 +370,8 @@ def build_range_pdf(start_str, end_str, sold_items, daily_rows, totals,
     expenses          : [{description, amount}]    (period's Gider)
     manual_incomes    : [{description, amount}]    (period's Ek Gelir)
     done_tasks        : [{date, title, category}]  completed calendar tasks
+    cancels           : [{at, table, product, qty, amount, reason, cause}]
+                        the period's İptal Edilenler
     """
     s = datetime.strptime(start_str, "%Y-%m-%d")
     e = datetime.strptime(end_str, "%Y-%m-%d")
@@ -356,6 +413,9 @@ def build_range_pdf(start_str, end_str, sold_items, daily_rows, totals,
                           [110, 30, 50], ["L", "C", "R"])
     else:
         _empty_note(pdf, "Bu dönemde satış yok.")
+
+    # ---- Cancelled products ----
+    _cancels_section(pdf, cancels, with_date=True, empty_text="Bu dönemde iptal edilen ürün yok.")
 
     # ---- Per-day breakdown (only days with sales) ----
     pdf.section("Günlük Döküm")
