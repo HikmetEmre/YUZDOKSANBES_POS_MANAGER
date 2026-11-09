@@ -56,6 +56,7 @@ import backup
 import paths
 import auth
 import mdns
+import daily_reports
 from version import __version__, APP_NAME
 
 app = FastAPI(title="YUZDOKSANBES POS")
@@ -394,6 +395,46 @@ def init_db():
                                  (n, aid, str(n)))
             conn.execute("INSERT INTO app_settings (key, value) VALUES ('tables_seeded', '1')")
 
+        # Sold-items ledger: ONE row per line per payment, dated when THAT
+        # payment happened (the same clock as sales_log revenue). Reports count
+        # quantities from here, so split payments, tables still open at report
+        # time and bills paid across midnight all land on the right day.
+        # `batch` ties a payment's ledger rows to its sales_log rows, so
+        # deleting a sale ("Satışı sil") also removes the items it sold.
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sold_items (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id     INTEGER,
+            item_id      INTEGER,
+            table_no     INTEGER,
+            product_name TEXT NOT NULL,
+            qty          REAL NOT NULL,
+            unit_price   REAL NOT NULL,
+            amount       REAL NOT NULL,
+            paid_at      TEXT NOT NULL,
+            batch        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sold_paid_at ON sold_items(paid_at);
+        CREATE INDEX IF NOT EXISTS idx_sold_batch   ON sold_items(batch);
+        """)
+        scols = {r["name"] for r in conn.execute("PRAGMA table_info(sales_log)").fetchall()}
+        if "batch" not in scols:
+            conn.execute("ALTER TABLE sales_log ADD COLUMN batch TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_batch ON sales_log(batch)")
+        # One-time back-fill from data paid before the ledger existed. The old
+        # schema only kept the LAST payment time per line, so that is the best
+        # date available for history; everything paid from now on is exact.
+        if not conn.execute("SELECT 1 FROM app_settings WHERE key='sold_items_backfilled'").fetchone():
+            conn.execute(
+                "INSERT INTO sold_items (order_id, item_id, table_no, product_name, qty,"
+                "                        unit_price, amount, paid_at, batch)"
+                " SELECT i.order_id, i.id, o.table_no, i.product_name, i.paid_qty,"
+                "        i.price, i.paid_qty * i.price, COALESCE(i.paid_at, o.paid_at), NULL"
+                " FROM order_items i JOIN orders o ON o.id = i.order_id"
+                " WHERE i.paid_qty > 0 AND COALESCE(i.paid_at, o.paid_at) IS NOT NULL"
+                "   AND NOT EXISTS (SELECT 1 FROM sold_items s WHERE s.item_id = i.id)")
+            conn.execute("INSERT INTO app_settings (key, value) VALUES ('sold_items_backfilled', '1')")
+
 
 init_db()
 
@@ -542,12 +583,44 @@ def _startup():
     # Live status picture on Google Drive for the owner's phone (monitor.py).
     if config.MONITOR_ENABLED:
         threading.Thread(target=_monitor_loop, daemon=True, name="live-monitor").start()
+    # Save each finished day's report PDF automatically (daily_reports.py).
+    if config.DAILY_REPORT_ENABLED:
+        _start_daily_reports()
     # Installed here (not at import) because uvicorn sets up its loggers just
     # before startup and would otherwise not have our filter yet.
     _access = logging.getLogger("uvicorn.access")
     if not any(isinstance(f, _QuietProbeFilter) for f in _access.filters):
         _access.addFilter(_QuietProbeFilter())
     _print_banner()
+
+
+def _day_has_activity(day: str) -> bool:
+    """Anything worth a daily report on this day: a sale, an expense, extra
+    income or a task. A closed day makes no empty PDF."""
+    nxt = (Date.fromisoformat(day) + timedelta(days=1)).isoformat()
+    with db() as conn:
+        return bool(conn.execute(
+            "SELECT EXISTS(SELECT 1 FROM sales_log WHERE paid_at >= ? AND paid_at < ?)"
+            "    OR EXISTS(SELECT 1 FROM sold_items WHERE paid_at >= ? AND paid_at < ?)"
+            "    OR EXISTS(SELECT 1 FROM expenses WHERE expense_date = ?)"
+            "    OR EXISTS(SELECT 1 FROM manual_income WHERE income_date = ?)"
+            "    OR EXISTS(SELECT 1 FROM tasks WHERE task_date = ?) AS a",
+            (day, nxt, day, nxt, day, day, day)).fetchone()["a"])
+
+
+def _daily_report_state():
+    with db() as conn:
+        return _setting(conn, daily_reports.STATE_KEY)
+
+
+def _set_daily_report_state(day: str) -> None:
+    with db() as conn:
+        _set_setting(conn, daily_reports.STATE_KEY, day)
+
+
+def _start_daily_reports() -> None:
+    daily_reports.start(_build_daily_pdf, _day_has_activity,
+                        _daily_report_state, _set_daily_report_state)
 
 
 def monitor_data() -> dict:
@@ -1639,6 +1712,8 @@ def cancellations(start: Optional[Date] = None, end: Optional[Date] = None):
 
 @app.post("/pay", dependencies=[Depends(auth.require("checkout"))])
 def pay_table(payment: PaymentRequest):
+    """Settle every remaining CONFIRMED unit with one method. QR items still
+    waiting for approval are not charged; they move to a fresh open bill."""
     _validate_payment_type(payment.payment_type)
     with db() as conn:
         order = conn.execute(
@@ -1649,27 +1724,75 @@ def pay_table(payment: PaymentRequest):
         if not order:
             raise HTTPException(status_code=400, detail="No open order")
 
-        total = _order_total(conn, order["id"])  # AUTHORITATIVE total
+        rows = conn.execute(
+            "SELECT id, product_name, quantity, price, paid_qty FROM order_items"
+            " WHERE order_id=? AND item_status='confirmed' AND quantity - paid_qty > 1e-9",
+            (order["id"],)
+        ).fetchall()
+        if not rows:
+            raise HTTPException(status_code=400, detail="Ödenecek ürün yok")
+        lines = [(r["id"], r["product_name"], r["quantity"] - r["paid_qty"],
+                  _price_of(r["product_name"], r["price"])) for r in rows]
+        total = sum(q * u for _, _, q, u in lines)   # AUTHORITATIVE: only what is still owed
         now = datetime.now().isoformat()
 
-        # Settle every remaining unit so per-item reporting (dashboard
-        # items_sold / top_items / daily PDF) counts items paid this way too.
         conn.execute(
             "UPDATE order_items SET paid_qty=quantity, paid=1, paid_at=?"
-            " WHERE order_id=? AND paid_qty < quantity",
+            " WHERE order_id=? AND item_status='confirmed' AND paid_qty < quantity",
             (now, order["id"])
         )
-        conn.execute(
-            "UPDATE orders SET status='paid', paid_at=?, payment_type=?, total_amount=? WHERE id=?",
-            (now, payment.payment_type, total, order["id"])
-        )
-        conn.execute(
-            "INSERT INTO sales_log (table_no, total_amount, payment_type, paid_at)"
-            " VALUES (?, ?, ?, ?)",
-            (payment.table_no, total, payment.payment_type, now)
-        )
+        _record_sale(conn, order["id"], payment.table_no, lines,
+                     [(payment.payment_type, total)], now)
+        _close_order(conn, order["id"], payment.table_no, payment.payment_type, now)
 
     return {"status": "payment_completed", "total": total}
+
+
+def _record_sale(conn, order_id: int, table_no: int, lines, splits, now: str) -> str:
+    """Write one payment: a sold_items row per line paid (what was sold, for the
+    reports' quantities) and a sales_log row per method (the revenue). Both
+    share a batch id and the same timestamp. lines = [(item_id, name, qty,
+    unit_price)], splits = [(method, amount)]."""
+    import uuid
+    batch = uuid.uuid4().hex
+    for item_id, name, qty, unit in lines:
+        conn.execute(
+            "INSERT INTO sold_items (order_id, item_id, table_no, product_name, qty,"
+            "                        unit_price, amount, paid_at, batch)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (order_id, item_id, table_no, name, qty, unit, qty * unit, now, batch))
+    for method, amount in splits:
+        conn.execute(
+            "INSERT INTO payments (order_id, table_no, amount, payment_type, paid_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (order_id, table_no, amount, method, now))
+        conn.execute(
+            "INSERT INTO sales_log (table_no, total_amount, payment_type, paid_at, batch)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (table_no, amount, method, now, batch))
+    return batch
+
+
+def _close_order(conn, order_id: int, table_no: int, label: str, now: str) -> None:
+    """Mark a fully paid bill 'paid'. QR items still waiting for approval are
+    NOT part of what was paid: they move to a new open bill on the same table,
+    so they are neither charged/reported as sold nor lost, and staff still see
+    them in the pending list."""
+    pending = conn.execute(
+        "SELECT id FROM order_items WHERE order_id=? AND item_status='pending'",
+        (order_id,)).fetchall()
+    conn.execute(
+        "UPDATE orders SET status='paid', paid_at=? WHERE id=?", (now, order_id))
+    if pending:
+        cur = conn.execute("INSERT INTO orders (table_no, created_at) VALUES (?, ?)",
+                           (table_no, now))
+        conn.execute(
+            f"UPDATE order_items SET order_id=? WHERE id IN ({','.join('?' * len(pending))})",
+            (cur.lastrowid, *[r["id"] for r in pending]))
+        conn.execute("UPDATE orders SET total_amount=? WHERE id=?",
+                     (_order_total(conn, cur.lastrowid), cur.lastrowid))
+    conn.execute("UPDATE orders SET payment_type=?, total_amount=? WHERE id=?",
+                 (label, _order_total(conn, order_id), order_id))
 
 
 @app.post("/pay-items", dependencies=[Depends(auth.require("checkout"))])
@@ -1712,14 +1835,19 @@ def pay_items(req: PayItemsRequest):
 
         # Validate every line and compute the authoritative amount being paid.
         selected_total = 0.0
+        names = {}
         for item_id, qty in want.items():
             row = conn.execute(
-                "SELECT product_name, quantity, price, paid_qty FROM order_items"
+                "SELECT product_name, quantity, price, paid_qty, item_status FROM order_items"
                 " WHERE id=? AND order_id=?",
                 (item_id, order_id)
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=400, detail="Ürün bu adisyona ait değil")
+            if row["item_status"] == "pending":
+                raise HTTPException(status_code=400,
+                                    detail=f"{row['product_name']}: onaylanmamış QR ürünü ödenemez")
+            names[item_id] = (row["product_name"], _price_of(row["product_name"], row["price"]))
 
             remaining_qty = row["quantity"] - row["paid_qty"]
             if qty > remaining_qty + 1e-9:
@@ -1755,35 +1883,25 @@ def pay_items(req: PayItemsRequest):
                     detail="Ödeme çakışması — bu ürünler bu sırada ödenmiş olabilir, lütfen tekrar deneyin"
                 )
 
-        # Record + log each payment portion immediately (keeps dashboard accurate
-        # even across multiple Dutch rounds on the same table).
-        for s in req.splits:
-            conn.execute(
-                "INSERT INTO payments (order_id, table_no, amount, payment_type, paid_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (order_id, req.table_no, s.amount, s.method, now)
-            )
-            conn.execute(
-                "INSERT INTO sales_log (table_no, total_amount, payment_type, paid_at)"
-                " VALUES (?, ?, ?, ?)",
-                (req.table_no, s.amount, s.method, now)
-            )
+        # Record the payment: sold_items (quantities) + payments/sales_log
+        # (revenue), one batch, same timestamp.
+        _record_sale(conn, order_id, req.table_no,
+                     [(iid, names[iid][0], qty, names[iid][1]) for iid, qty in want.items()],
+                     [(sp.method, sp.amount) for sp in req.splits], now)
 
-        # Fully settled when no line has unpaid units left.
+        # Fully settled when no CONFIRMED line has unpaid units left (QR items
+        # still waiting for approval are not part of this bill, see _close_order).
         remaining_units = conn.execute(
-            "SELECT COALESCE(SUM(quantity - paid_qty), 0) AS r FROM order_items WHERE order_id=?",
+            "SELECT COALESCE(SUM(quantity - paid_qty), 0) AS r FROM order_items"
+            " WHERE order_id=? AND item_status='confirmed'",
             (order_id,)
         ).fetchone()["r"]
 
         order_closed = remaining_units <= 1e-9
         if order_closed:
-            order_total = _order_total(conn, order_id)
-            methods = {s.method for s in req.splits}
+            methods = {sp.method for sp in req.splits}
             label = methods.pop() if len(methods) == 1 else "split"
-            conn.execute(
-                "UPDATE orders SET status='paid', paid_at=?, payment_type=?, total_amount=? WHERE id=?",
-                (now, label, order_total, order_id)
-            )
+            _close_order(conn, order_id, req.table_no, label, now)
 
     return {
         "status": "items_paid",
@@ -1815,8 +1933,15 @@ def _remaining_total_after(table_no: int) -> float:
 
 @app.delete("/sales-log/{log_id}", dependencies=[Depends(auth.require("checkout"))])
 def delete_sales_log(log_id: int):
+    """Correct a mistaken sale. Its sold items leave the reports too, once every
+    revenue row of that payment is deleted (one leg of a cash+card split alone
+    keeps the items: the goods were still sold)."""
     with db() as conn:
+        row = conn.execute("SELECT batch FROM sales_log WHERE id=?", (log_id,)).fetchone()
         conn.execute("DELETE FROM sales_log WHERE id=?", (log_id,))
+        if row and row["batch"] and not conn.execute(
+                "SELECT 1 FROM sales_log WHERE batch=?", (row["batch"],)).fetchone():
+            conn.execute("DELETE FROM sold_items WHERE batch=?", (row["batch"],))
     return {"status": "deleted"}
 
 
@@ -1872,18 +1997,12 @@ def dashboard_summary():
             "SELECT total_amount, payment_type FROM sales_log WHERE paid_at LIKE ?",
             (f"{today}%",)
         ).fetchall()
-        # Items actually sold today = paid units on orders paid today.
-        item_rows = conn.execute(
-            "SELECT i.product_name, SUM(i.paid_qty) AS qty"
-            " FROM order_items i JOIN orders o ON o.id = i.order_id"
-            " WHERE o.status='paid' AND o.paid_at LIKE ? AND i.paid_qty > 0"
-            " GROUP BY i.product_name ORDER BY qty DESC",
-            (f"{today}%",)
-        ).fetchall()
+        # Items actually sold today = units whose payment happened today.
+        item_rows = _sold_items(conn, today, _next_day(today))
     total = sum(r["total_amount"] for r in rows)
     cash  = sum(r["total_amount"] for r in rows if r["payment_type"] == "cash")
     card  = sum(r["total_amount"] for r in rows if r["payment_type"] == "card")
-    items_sold = sum(r["qty"] or 0 for r in item_rows)
+    items_sold = round(sum(r["qty"] for r in item_rows), 3)
     with db() as conn:
         coffee = _coffee_summary(conn)
     return {
@@ -1893,7 +2012,7 @@ def dashboard_summary():
         "revenue": total, "cash": cash, "card": card,
         "sale_count": len(rows),
         "items_sold": items_sold,
-        "top_items": [{"name": r["product_name"], "qty": r["qty"]} for r in item_rows[:8]],
+        "top_items": [{"name": r["name"], "qty": r["qty"]} for r in item_rows[:8]],
         "stock_check_day": datetime.now().weekday() in (2, 5),   # Wed=2, Sat=5
         "low_stock_count": _low_stock_count(),
     }
@@ -2366,6 +2485,32 @@ def _fmt_expense(r) -> dict:
             "amount": r["amount"]}
 
 
+def _sold_items(conn, start: str, end_excl: str) -> list:
+    """Products sold in [start, end_excl) — ISO dates/timestamps — from the
+    sold_items ledger: each unit counted on the day its payment happened, the
+    same clock as sales_log revenue. [{name, qty, total}], most sold first."""
+    rows = conn.execute(
+        "SELECT product_name AS name, SUM(qty) AS qty, SUM(amount) AS total"
+        " FROM sold_items WHERE paid_at >= ? AND paid_at < ?"
+        " GROUP BY product_name HAVING SUM(qty) > 1e-9"
+        " ORDER BY qty DESC, name", (start, end_excl)).fetchall()
+    items = [{"name": r["name"], "qty": round(r["qty"], 3), "total": round(r["total"], 2)}
+             for r in rows]
+    revenue = conn.execute(
+        "SELECT COALESCE(SUM(total_amount), 0) AS t FROM sales_log"
+        " WHERE paid_at >= ? AND paid_at < ?", (start, end_excl)).fetchone()["t"]
+    if abs(revenue - sum(i["total"] for i in items)) > 0.01:
+        # Expected only for history from before the ledger (old split/deleted
+        # sales). New payments always write both sides together.
+        log.debug("Report %s..%s: items total %.2f != revenue %.2f", start, end_excl,
+                  sum(i["total"] for i in items), revenue)
+    return items
+
+
+def _next_day(day: str) -> str:
+    return (Date.fromisoformat(day) + timedelta(days=1)).isoformat()
+
+
 def _build_daily_pdf(day: str) -> bytes:
     """Gather one day's full picture (sales, Ek Gelir, Gider, Görevler) and build
     the comprehensive 'Günlük Rapor' PDF."""
@@ -2375,14 +2520,7 @@ def _build_daily_pdf(day: str) -> bytes:
             "SELECT total_amount, payment_type FROM sales_log WHERE paid_at LIKE ?",
             (f"{day}%",)
         ).fetchall()
-        items = conn.execute(
-            "SELECT i.product_name AS name, SUM(i.paid_qty) AS qty,"
-            "       SUM(i.paid_qty * i.price) AS total"
-            " FROM order_items i JOIN orders o ON o.id = i.order_id"
-            " WHERE o.status='paid' AND o.paid_at LIKE ? AND i.paid_qty > 0"
-            " GROUP BY i.product_name ORDER BY qty DESC",
-            (f"{day}%",)
-        ).fetchall()
+        sold = _sold_items(conn, day, _next_day(day))
         exp_rows = conn.execute(
             "SELECT category, description, quantity, unit_price, amount"
             " FROM expenses WHERE expense_date = ? ORDER BY id",
@@ -2409,7 +2547,6 @@ def _build_daily_pdf(day: str) -> bytes:
         "income_total": income_total, "expense_total": expense_total,
         "net": income_total - expense_total,
     }
-    sold = [{"name": r["name"], "qty": r["qty"], "total": r["total"]} for r in items]
     expenses = [_fmt_expense(r) for r in exp_rows]
     manual_incomes = [{"description": r["description"], "amount": r["amount"]} for r in mi_rows]
     tasks = [{"title": r["title"], "category": r["category"], "done": r["done"]} for r in task_rows]
@@ -2422,10 +2559,29 @@ def _build_daily_pdf(day: str) -> bytes:
 def report_daily(date: Optional[str] = None):
     """PDF for one day. date='YYYY-MM-DD' (default: today)."""
     day = date or datetime.now().strftime("%Y-%m-%d")
+    try:
+        day = Date.fromisoformat(day).isoformat()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Geçersiz tarih (YYYY-AA-GG)")
     pdf = _build_daily_pdf(day)
     fname = f"gunluk_{day}.pdf"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.get("/reports/auto-status", dependencies=[Depends(auth.require("checkout"))])
+def report_auto_status():
+    """Automatic daily reports: on/off, newest day saved, where they are."""
+    st = daily_reports.status() if config.DAILY_REPORT_ENABLED else {}
+    with db() as conn:
+        last = _setting(conn, daily_reports.STATE_KEY)
+    folder = daily_reports.local_dir()
+    files = sorted(folder.glob("gunluk_*.pdf")) if folder.is_dir() else []
+    return {"enabled": config.DAILY_REPORT_ENABLED, "at": config.DAILY_REPORT_AT,
+            "last_checked_day": last,
+            "last_saved": files[-1].stem[len("gunluk_"):] if files else None,
+            "count": len(files), "folder": str(folder),
+            "mirrors": st.get("mirrors", []), "last_error": st.get("last_error")}
 
 
 MAX_REPORT_DAYS = 366
@@ -2446,12 +2602,7 @@ def report_range(start: Date, end: Date):
         rows = conn.execute(
             "SELECT total_amount, payment_type, substr(paid_at,1,10) AS day FROM sales_log"
             " WHERE paid_at >= ? AND paid_at < ?", (s, e_next)).fetchall()
-        items = conn.execute(
-            "SELECT i.product_name AS name, SUM(i.paid_qty) AS qty,"
-            "       SUM(i.paid_qty * i.price) AS total"
-            " FROM order_items i JOIN orders o ON o.id = i.order_id"
-            " WHERE o.status='paid' AND o.paid_at >= ? AND o.paid_at < ? AND i.paid_qty > 0"
-            " GROUP BY i.product_name ORDER BY qty DESC, name", (s, e_next)).fetchall()
+        sold = _sold_items(conn, s, e_next)
         exp_rows = conn.execute(
             "SELECT category, description, quantity, unit_price, amount, expense_date"
             " FROM expenses WHERE expense_date >= ? AND expense_date <= ?"
@@ -2484,7 +2635,7 @@ def report_range(start: Date, end: Date):
     daily_rows = [per_day[k] for k in sorted(per_day)]
     pdf = reports.build_range_pdf(
         s, e,
-        [{"name": r["name"], "qty": r["qty"], "total": r["total"]} for r in items],
+        sold,
         daily_rows, totals,
         expenses=[_fmt_expense(r) for r in exp_rows],
         manual_incomes=[{"description": r["description"], "amount": r["amount"]} for r in mi_rows],
@@ -2769,6 +2920,13 @@ def _selftest() -> int:
         checks["QR code PNG"] = buf.getvalue()
         import monitor
         checks["live monitor PNG"] = monitor.render_png(monitor_data())
+        os.environ["POS_REPORT_MIRRORS"] = ""      # self-test never writes to Google Drive
+        tomorrow_morning = datetime.combine(today + timedelta(days=1), datetime.min.time()) + timedelta(hours=5)
+        saved = daily_reports.run_once(tomorrow_morning, _build_daily_pdf, _day_has_activity,
+                                       lambda: None, lambda d: None)
+        checks["automatic daily report"] = (
+            (daily_reports.local_dir() / daily_reports.file_name(today)).read_bytes()
+            if today.isoformat() in saved else b"")
         for name, data in checks.items():
             ok = data[:4] in (b"%PDF", b"\x89PNG")
             print(f"  {'OK  ' if ok else 'FAIL'} {name} ({len(data)} bytes)", flush=True)

@@ -1,4 +1,4 @@
-# YUZDOKSANBES POS — Python dependencies (FROZEN for v1.4.0)
+# YUZDOKSANBES POS — Python dependencies (FROZEN for v1.4.1)
 # Install with:  install.bat   (or:  pip install -r requirements.txt)
 #
 # Exact versions = the ones the whole app was tested with. Do not loosen them

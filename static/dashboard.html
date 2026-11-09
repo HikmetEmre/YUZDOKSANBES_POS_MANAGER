@@ -1484,7 +1484,27 @@
                         <button onclick="genMonthly()">Aylık PDF</button>
                     </div>
                 </div>
-            </div>`;
+            </div>
+            <div class="card" id="autoReport" style="margin-top:14px;font-size:13px;color:var(--muted);">
+                🕓 Otomatik günlük rapor: yükleniyor…</div>`;
+        loadAutoReportStatus();
+    }
+
+    // One line: is the end-of-day PDF being saved automatically, and where.
+    async function loadAutoReportStatus() {
+        const box = document.getElementById('autoReport');
+        try {
+            const s = await (await authFetch('/reports/auto-status')).json();
+            if(!box) return;
+            if(!s.enabled) { box.innerHTML = '🕓 Otomatik günlük rapor: <b>kapalı</b>'; return; }
+            const last = s.last_saved ? s.last_saved.split('-').reverse().join('.') : 'henüz yok';
+            const where = [s.folder, ...(s.mirrors || [])].map(esc).join('<br>');
+            box.innerHTML = `🕓 <b style="color:var(--ink);">Otomatik günlük rapor</b>: her gün bittiğinde
+                (ertesi sabah ${esc(s.at)}) PDF kendiliğinden kaydedilir.
+                Son kaydedilen: <b style="color:var(--ink);">${esc(last)}</b> · toplam ${s.count} rapor.
+                ${s.last_error ? `<br><span style="color:#c62828;">Son hata: ${esc(s.last_error)}</span>` : ''}
+                <div style="margin-top:6px;font-size:12px;">Klasör:<br>${where}</div>`;
+        } catch(e) { if(box) box.innerHTML = '🕓 Otomatik günlük rapor: durum alınamadı'; }
     }
 
     async function downloadPdf(url, fallbackName) {
@@ -1590,6 +1610,9 @@
     }
 
     async function loadSummary() {
+        // The 60 s refresh also ticks on the password screen (not logged in,
+        // Home not drawn yet) — nothing to update there.
+        if(!AUTH_TOKEN || !document.getElementById('summaryCard')) return;
         try {
             const s = await (await authFetch('/dashboard/summary')).json();
             let items = s.top_items.length

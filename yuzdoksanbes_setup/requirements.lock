@@ -1,4 +1,4 @@
-# YUZDOKSANBES POS v1.4.0 — FULL frozen dependency set (runtime + build).
+# YUZDOKSANBES POS v1.4.1 — FULL frozen dependency set (runtime + build).
 # Generated with: pip freeze  (in the clean .build-venv, Python 3.12.8)
 # build.bat installs ONLY from this file, so every build is identical.
 # Every package here was installed when the app's test suites passed.

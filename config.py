@@ -206,6 +206,19 @@ if "POS_BACKUP_MIRRORS" in os.environ:
     BACKUP_MIRRORS = [p.strip() for p in os.environ["POS_BACKUP_MIRRORS"].split(";") if p.strip()]
 BACKUP_MACHINE_NAME = ""         # subfolder name; "" = this PC's hostname
 
+# Automatic daily report (daily_reports.py): when a day is over the POS saves
+# its "Günlük Rapor" PDF by itself to <data>\reports\gunluk\ and to
+# <Google Drive>\pos-reports\<PC>\. A day is "over" at DAILY_REPORT_AT the next
+# morning, so bills paid after midnight are finished first. Missed days (PC off)
+# are made at the next start, up to DAILY_REPORT_CATCHUP_DAYS back; days with no
+# activity are skipped. POS_REPORT_MIRRORS env overrides the Drive folder
+# (";"-separated; EMPTY = local only — tests use this).
+DAILY_REPORT_ENABLED      = True
+DAILY_REPORT_AT           = "04:00"
+DAILY_REPORT_CHECK_MIN    = 10
+DAILY_REPORT_CATCHUP_DAYS = 31
+DAILY_REPORT_FOLDER_NAME  = "pos-reports"
+
 # =====================================================
 # LOGGING (system health / audit trail)
 # A rolling on-disk log so problems are never lost: failed backups, unhandled

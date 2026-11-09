@@ -82,6 +82,13 @@
                 });
                 if(res.ok) {
                     const data = await res.json();
+                    // The cash desk is admin-only (payments, cancels, revenue).
+                    // The waiter password is for /waiter — same rule as the Panel.
+                    if(data.role !== 'checkout') {
+                        document.getElementById('pinError').innerText = 'Yönetici yetkisi gerekli.';
+                        document.getElementById('pinInput').value = '';
+                        return;
+                    }
                     AUTH_TOKEN = data.token;
                     MY_ROLE    = data.role;
                     sessionStorage.setItem('pos_token', AUTH_TOKEN);
@@ -947,6 +954,12 @@
             document.getElementById('pinInput').addEventListener('keydown', e => {
                 if(e.key === 'Enter') checkPin();
             });
+            // A session saved by an older version with the waiter password must
+            // not reopen the cash desk: drop it and ask for the admin password.
+            if(sessionStorage.getItem('pos_auth') === '1' && sessionStorage.getItem('pos_role') !== 'checkout') {
+                ['pos_token', 'pos_role', 'pos_auth'].forEach(k => sessionStorage.removeItem(k));
+                AUTH_TOKEN = null; MY_ROLE = null;
+            }
             if(sessionStorage.getItem('pos_auth') === '1') {
                 document.getElementById('pinModal').style.display = 'none';
                 init();

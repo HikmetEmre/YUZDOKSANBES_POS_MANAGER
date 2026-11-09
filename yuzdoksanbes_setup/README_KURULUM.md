@@ -66,6 +66,7 @@ Tüm veriler `C:\ProgramData\YUZDOKSANBES` klasöründedir (Başlat menüsü →
 "Veri klasörü"):
 - `pos.db`: tüm satışlar, menü, stok, reçeteler…
 - `backups\`: saatlik otomatik yedekler
+- `reports\gunluk\`: her günün raporu (PDF), gün bitince kendiliğinden kaydedilir
 - `logs\pos.log`: sistem kayıtları
 - `credentials.json`: şifreler. En kolay değiştirme yolu kurulum dosyasını
   yeniden çalıştırmaktır (şifre sayfası her kurulumda gelir). İsterseniz bu dosyayı
@@ -80,6 +81,12 @@ kopyalanır (klasör kendiliğinden oluşturulur; İngilizce Windows'ta `My Driv
 Google Drive başka bir sürücü harfindeyse de bulunur. Google Drive yoksa veya
 henüz açılmadıysa yedekler yalnızca bu bilgisayarda tutulur ve Drive açılınca
 bir sonraki yedekten itibaren oraya da kopyalanır.
+
+**Otomatik günlük rapor:** her gün bittiğinde (ertesi sabah 04:00'ten sonra) o günün
+Günlük Rapor PDF'i kimse düğmeye basmadan kaydedilir: `reports\gunluk\gunluk_YYYY-AA-GG.pdf`
+ve Google Drive varsa `pos-reports\<bilgisayar adı>\` klasörüne. Bilgisayar kapalı kaldıysa
+eksik günler (en fazla 31 gün geriye) bir sonraki açılışta tamamlanır; hiç satış/gider
+olmayan günler için rapor oluşturulmaz. Durum: Panel → Raporlar sayfasının altında.
 
 ## 7. Güncelleme
 Yeni sürümün kurulum dosyasını çalıştırmanız yeterlidir.
