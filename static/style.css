@@ -991,3 +991,31 @@ button, .table-btn, .cat-btn, .menu-item-btn, .action-btn, .tab-btn {
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { transition: none !important; animation: none !important; }
         }
+
+/* ── "Teslim Edildi" (delivered) — POS tablet + waiter phone ── */
+.deliver-btn {
+    background: #2e7d32; color: #fff; border: none; border-radius: 8px;
+    padding: 8px 12px; min-height: 40px; font-size: 13px; font-weight: bold;
+    cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;
+}
+.deliver-btn:active { transform: scale(0.96); }
+.deliver-count {
+    background: #fff; color: #2e7d32; border-radius: 10px; padding: 0 7px;
+    font-size: 12px; line-height: 18px;
+}
+.delivered-ok { color: #2e7d32; font-size: 12px; font-weight: bold; white-space: nowrap; }
+/* a line that has not been brought to the table yet */
+.wait-badge {
+    display: inline-block; background: #fff3cd; color: #856404; font-size: 10px;
+    font-weight: bold; padding: 1px 5px; border-radius: 3px; margin-left: 5px;
+}
+/* amber dot on a table that still has something to bring */
+.table-btn.undelivered { position: relative; }
+.table-btn.undelivered::after {
+    content: ''; position: absolute; top: 1px; right: 1px; width: 13px; height: 13px;
+    border-radius: 50%; background: #ffb300; border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+}
+@media (max-width: 480px) {
+    .deliver-btn { padding: 8px 10px; font-size: 12px; }
+}

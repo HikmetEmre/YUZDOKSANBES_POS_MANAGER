@@ -122,8 +122,14 @@ _setup_logging()
 # =====================================================
 
 @contextmanager
-def db():
-    """Yields a connection that is ALWAYS committed+closed (or rolled back on error)."""
+def db(write: bool = False):
+    """Yields a connection that is ALWAYS committed+closed (or rolled back on error).
+
+    write=True takes SQLite's write lock up front (BEGIN IMMEDIATE). Use it for
+    every endpoint that READS state and then WRITES based on it (orders,
+    payments, cancellations): two devices acting on the same table then run one
+    after the other, and the second one sees what the first one did instead of
+    a stale picture. Waits up to busy_timeout for the lock."""
     conn = sqlite3.connect(paths.data_path(config.DB_PATH), timeout=10.0)
     conn.row_factory = sqlite3.Row
     # WAL lets readers and one writer work concurrently -> no 'database is locked'
@@ -132,6 +138,8 @@ def db():
     conn.execute("PRAGMA busy_timeout=10000;")  # wait up to 10s for a lock
     conn.execute("PRAGMA foreign_keys=ON;")
     try:
+        if write:
+            conn.execute("BEGIN IMMEDIATE")
         yield conn
         conn.commit()
     except Exception:
@@ -338,6 +346,31 @@ def init_db():
         # and need staff to accept; staff-created items are 'confirmed'.
         if "item_status" not in cols:
             conn.execute("ALTER TABLE order_items ADD COLUMN item_status TEXT NOT NULL DEFAULT 'confirmed'")
+        # Save-retry guard: the page gives every new line its own id. If a save
+        # reached the server but the answer was lost (WiFi drop) and staff press
+        # Kaydet again, lines whose id is already stored are skipped instead of
+        # being added twice. NULL for lines from before this / older pages.
+        if "client_id" not in cols:
+            conn.execute("ALTER TABLE order_items ADD COLUMN client_id TEXT")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_order_items_client_id"
+            " ON order_items(client_id) WHERE client_id IS NOT NULL"
+        )
+        # "Teslim Edildi": when a line was brought to the table (NULL = not yet).
+        # Replaces the old Hazırlanıyor/Hazır switch (orders.barista_status,
+        # no longer used). Lines that exist before this column are history or
+        # already served → marked delivered so no table lights up by mistake.
+        if "delivered_at" not in cols:
+            conn.execute("ALTER TABLE order_items ADD COLUMN delivered_at TEXT")
+            conn.execute("UPDATE order_items SET delivered_at = created_at")
+        # An open bill with no lines at all can't be paid, cancelled or cleared
+        # from the screens (older versions could create one from an empty QR
+        # request). Remove any such leftover so its table is free again.
+        gone = conn.execute(
+            "DELETE FROM orders WHERE status='open'"
+            " AND NOT EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = orders.id)").rowcount
+        if gone:
+            log.info("Removed %d empty open bill(s) left on tables", gone)
 
         # Concurrency guard: at most ONE open order per table. First collapse
         # any pre-existing duplicates (merge their items into the oldest order,
@@ -627,6 +660,34 @@ def _day_changed_since(day: str, since: str) -> bool:
         ).fetchone()["a"])
 
 
+def _day_fingerprint(day: str) -> str:
+    """A short hash of everything the daily PDF of `day` is built from. If it
+    differs from the one stored when the PDF was saved, the PDF is out of date —
+    whatever changed: a late sale, a deleted sale, an expense entered or
+    removed the next morning, a task ticked done."""
+    import hashlib
+    nxt = _next_day(day)
+    h = hashlib.sha256()
+    with db() as conn:
+        for sql, args in (
+            ("SELECT id, total_amount, payment_type, paid_at FROM sales_log"
+             " WHERE paid_at >= ? AND paid_at < ? ORDER BY id", (day, nxt)),
+            ("SELECT id, product_name, qty, amount FROM sold_items"
+             " WHERE paid_at >= ? AND paid_at < ? ORDER BY id", (day, nxt)),
+            ("SELECT id, table_no, product_name, quantity, amount, reason, note FROM cancellations"
+             " WHERE cancelled_at >= ? AND cancelled_at < ? ORDER BY id", (day, nxt)),
+            ("SELECT id, category, description, quantity, unit_price, amount FROM expenses"
+             " WHERE expense_date = ? ORDER BY id", (day,)),
+            ("SELECT id, description, amount FROM manual_income"
+             " WHERE income_date = ? ORDER BY id", (day,)),
+            ("SELECT id, title, category, done FROM tasks"
+             " WHERE task_date = ? ORDER BY id", (day,)),
+        ):
+            rows = conn.execute(sql, args).fetchall()
+            h.update(repr([tuple(r) for r in rows]).encode("utf-8"))
+    return h.hexdigest()[:32]
+
+
 def _daily_report_state():
     with db() as conn:
         return _setting(conn, daily_reports.STATE_KEY)
@@ -639,7 +700,8 @@ def _set_daily_report_state(day: str) -> None:
 
 def _start_daily_reports() -> None:
     daily_reports.start(_build_daily_pdf, _day_has_activity,
-                        _daily_report_state, _set_daily_report_state, _day_changed_since)
+                        _daily_report_state, _set_daily_report_state, _day_changed_since,
+                        fingerprint=_day_fingerprint)
 
 
 def monitor_data() -> dict:
@@ -761,15 +823,28 @@ def _print_banner() -> None:
 # MODELS
 # =====================================================
 
+# Sanity limits for one /create-order request (any role).
+MAX_LINE_QTY    = 1000     # units of one product on one line
+MAX_ORDER_LINES = 100      # lines in one request
+# Stricter limits for QR customers (no login — anyone on the WiFi).
+CUSTOMER_MAX_QTY   = 50    # units of one product
+CUSTOMER_MAX_LINES = 40    # different products in one order
+
 class Item(BaseModel):
-    product_name: str
-    quantity: float = Field(gt=0)
-    price: float = Field(ge=0)  # client-sent price is IGNORED for totals (see compute below)
+    product_name: str = Field(min_length=1, max_length=120)
+    quantity: float = Field(gt=0, le=MAX_LINE_QTY)
+    price: float = Field(ge=0, le=1_000_000)  # client-sent price is IGNORED for totals (see compute below)
+    # Unique id the page gives each new line; makes a repeated save harmless.
+    client_id: Optional[str] = Field(default=None, min_length=8, max_length=64)
 
 
 class OrderCreate(BaseModel):
     table_no: int = Field(ge=1)
-    items: List[Item]
+    items: List[Item] = Field(max_length=MAX_ORDER_LINES)      # at least one: checked in create_order
+    # QR page only: ids of products the customer REMOVED from the cart after a
+    # send whose answer was lost. If the server did store them and staff have
+    # not accepted them yet, they are taken back.
+    withdraw: Optional[List[str]] = Field(default=None, max_length=CUSTOMER_MAX_LINES)
 
 
 class PaymentRequest(BaseModel):
@@ -804,9 +879,10 @@ class CancelRequest(BaseModel):
     note: Optional[str] = Field(default=None, max_length=120)
 
 
-class StatusUpdate(BaseModel):
-    order_id: int
-    status: str
+class DeliverRequest(BaseModel):
+    table_no: int = Field(ge=1)
+    # The lines the device was showing as "not delivered". None = all of them.
+    item_ids: Optional[List[int]] = Field(default=None, max_length=500)
 
 
 class RemoveItem(BaseModel):
@@ -1000,6 +1076,44 @@ CUSTOMER_WINDOW_SEC     = 60              # ... per this many seconds, per table
 
 # PIN-login brute-force limit: failed /auth attempts per client IP.
 _auth_fails = defaultdict(list)           # client_ip -> [unix timestamps of failures]
+# … and over all devices together (someone changing IP to get new tries).
+_auth_global_fails = []                   # [unix timestamps of failures, any device]
+_auth_trusted = None                      # {ip: unix time of last correct login}; app_settings
+_LOCAL_IPS = {"127.0.0.1", "::1", "localhost"}   # the POS computer itself is always allowed to try
+
+
+def _trusted_devices() -> dict:
+    """Devices (IPs) that logged in correctly within AUTH_TRUSTED_DAYS. Kept in
+    app_settings so a restart during an attack doesn't lock the staff out."""
+    global _auth_trusted
+    if _auth_trusted is None:
+        import json
+        try:
+            with db() as conn:
+                _auth_trusted = {str(k): float(v) for k, v in
+                                 json.loads(_setting(conn, "auth_trusted_ips") or "{}").items()}
+        except Exception:
+            _auth_trusted = {}
+    keep = _time.time() - getattr(config, "AUTH_TRUSTED_DAYS", 60) * 86400
+    for ip in [ip for ip, t in _auth_trusted.items() if t < keep]:
+        del _auth_trusted[ip]
+    return _auth_trusted
+
+
+def _remember_trusted(ip: str) -> None:
+    """Note a correct login from this device (written at most once a day per device)."""
+    import json
+    with _throttle_lock:
+        trusted = _trusted_devices()
+        if _time.time() - trusted.get(ip, 0) < 86400:
+            return
+        trusted[ip] = _time.time()
+        snapshot = json.dumps(trusted)
+    try:
+        with db() as conn:
+            _set_setting(conn, "auth_trusted_ips", snapshot)
+    except Exception as e:                 # never let bookkeeping break a login
+        log.warning("Could not store the known-devices list: %r", e)
 
 
 # =====================================================
@@ -1020,24 +1134,52 @@ def auth_login(req: PinRequest, request: Request):
     ip = request.client.host if request.client else "unknown"
     now_t = _time.time()
 
+    # Check, verify and record in ONE critical section: parallel requests from
+    # the same device can't all pass the count check before a failure is noted.
     with _throttle_lock:
         fails = [t for t in _auth_fails[ip] if now_t - t < config.AUTH_WINDOW_SEC]
-        _auth_fails[ip] = fails
         if len(fails) >= config.AUTH_MAX_FAILS:
+            _auth_fails[ip] = fails
             retry = int(config.AUTH_WINDOW_SEC - (now_t - min(fails))) + 1
             raise HTTPException(
                 status_code=429,
                 detail=f"Çok fazla hatalı deneme. {retry} saniye sonra tekrar deneyin."
             )
-
-    role = auth.role_for_pin(req.pin)
-    if role is None:
-        with _throttle_lock:
-            _auth_fails[ip].append(now_t)
-        raise HTTPException(status_code=401, detail="Hatalı şifre")
-
-    with _throttle_lock:
-        _auth_fails.pop(ip, None)   # a correct PIN clears the device's failures
+        if not fails:
+            _auth_fails.pop(ip, None)       # don't keep empty entries for every address ever seen
+        # All devices together: too many wrong PINs recently → only known
+        # devices (and this computer) may still try. Changing IP no longer
+        # buys new guesses.
+        g_win = getattr(config, "AUTH_GLOBAL_WINDOW_SEC", 3600)
+        _auth_global_fails[:] = [t for t in _auth_global_fails if now_t - t < g_win]
+        if (len(_auth_global_fails) >= getattr(config, "AUTH_GLOBAL_MAX_FAILS", 30)
+                and ip not in _LOCAL_IPS and ip not in _trusted_devices()):
+            wait_min = int((g_win - (now_t - min(_auth_global_fails))) // 60) + 1
+            log.warning("Login refused for unknown device %s: %d wrong PINs from all devices in the last %d min",
+                        ip, len(_auth_global_fails), g_win // 60)
+            raise HTTPException(
+                status_code=429,
+                detail=("Çok fazla hatalı giriş denemesi yapıldı. Yeni cihazlardan giriş geçici olarak kapalı — "
+                        f"daha önce giriş yapılmış bir cihazı kullanın veya {wait_min} dakika sonra deneyin.")
+            )
+        try:
+            role = auth.role_for_pin(req.pin)
+        except TypeError:               # non-ASCII text can never be a PIN
+            role = None
+        if role is None:
+            fails.append(now_t)
+            _auth_fails[ip] = fails
+            _auth_global_fails.append(now_t)
+            raise HTTPException(status_code=401, detail="Hatalı şifre")
+        # Only the checkout (admin) PIN clears the device's failures. A waiter
+        # PIN does not: otherwise someone who knows it could guess the checkout
+        # PIN forever by logging in as waiter between wrong tries. Those
+        # failures simply age out after AUTH_WINDOW_SEC.
+        if role == "checkout" or not fails:
+            _auth_fails.pop(ip, None)
+        else:
+            _auth_fails[ip] = fails
+    _remember_trusted(ip)                   # a device that knows a PIN is a known device
     return {"ok": True, "role": role, "token": auth.make_token(role)}
 
 
@@ -1265,7 +1407,7 @@ def tables_area_rename(a: AreaRename):
 @app.post("/tables/area-delete", dependencies=[Depends(auth.require("checkout"))])
 def tables_area_delete(e: EntryId):
     """Delete an area and its tables — refused while any of them has an open bill."""
-    with db() as conn:
+    with db(write=True) as conn:      # no bill can be opened between the check and the delete
         _area_or_404(conn, e.id)
         tables = [r["table_no"] for r in conn.execute(
             "SELECT table_no FROM cafe_tables WHERE area_id=? ORDER BY table_no", (e.id,))]
@@ -1287,7 +1429,7 @@ def tables_add(t: TablesAdd):
     internal number from NAMED_TABLE_START. All-or-nothing: any clash (number
     or name, in any area) → nothing added, the clash is reported."""
     spec = t.spec.strip()
-    with db() as conn:
+    with db(write=True) as conn:
         _area_or_404(conn, t.area_id)
         if any(ch.isalpha() for ch in spec):                      # one named table
             name = _clean_table_name(spec)
@@ -1328,7 +1470,7 @@ def tables_rename(t: TableRename):
     codes, the open bill and past records are untouched — allowed even while
     the table has an open bill."""
     name = _clean_table_name(t.name)
-    with db() as conn:
+    with db(write=True) as conn:
         row = conn.execute("SELECT table_no, name FROM cafe_tables WHERE table_no=?", (t.table_no,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Masa bulunamadı")
@@ -1345,7 +1487,7 @@ def tables_rename(t: TableRename):
 
 @app.post("/tables/delete", dependencies=[Depends(auth.require("checkout"))])
 def tables_delete(t: TableRef):
-    with db() as conn:
+    with db(write=True) as conn:      # no bill can be opened between the check and the delete
         if t.table_no in _open_tables(conn):
             raise HTTPException(status_code=400,
                                 detail=f"{table_label(t.table_no)} için açık adisyon var — önce kapatın")
@@ -1359,25 +1501,166 @@ def tables_delete(t: TableRef):
 # ORDERS
 # =====================================================
 
+def _converge_customer_lines(conn, order: "OrderCreate") -> list:
+    """QR orders: make what the server holds match the phone's cart.
+
+    Every product in the phone's cart keeps one id (client_id) until the server
+    confirms the order. When an order arrives again after a lost answer, the
+    customer may have changed it meanwhile, so for every product the server
+    compares the quantity now asked with what it already stored under that id:
+      - nothing stored        → add the line (normal case)
+      - same quantity         → nothing to do
+      - customer wants more   → add only the difference, as a new pending line
+      - customer wants fewer  → reduce lines that staff have NOT accepted yet
+      - product removed (order.withdraw) → take back its not-yet-accepted lines
+    Lines staff already accepted are never touched here: only staff change those
+    (✕ with a reason). Only this table's open bill is ever modified.
+    Returns the lines that still have to be inserted."""
+    row = conn.execute("SELECT id FROM orders WHERE table_no=? AND status='open'",
+                       (order.table_no,)).fetchone()
+    open_id = row["id"] if row else None
+
+    def family(cid):        # the line stored under this id + later "difference" lines
+        return conn.execute(
+            "SELECT id, order_id, quantity, item_status, client_id FROM order_items"
+            " WHERE client_id=? OR substr(client_id, 1, ?)=? ORDER BY id DESC",
+            (cid, len(cid) + 1, cid + "+")).fetchall()
+
+    def take_back(rows, amount):        # amount None = everything still pending
+        for r in rows:
+            if r["item_status"] != "pending" or r["order_id"] != open_id:
+                continue
+            if amount is None or r["quantity"] <= amount + 1e-9:
+                conn.execute("DELETE FROM order_items WHERE id=?", (r["id"],))
+                if amount is not None:
+                    amount -= r["quantity"]
+            else:
+                conn.execute("UPDATE order_items SET quantity=? WHERE id=?",
+                             (r["quantity"] - amount, r["id"]))
+                amount = 0
+            if amount is not None and amount <= 1e-9:
+                break
+
+    for cid in {c for c in (order.withdraw or []) if 8 <= len(c) <= 64}:
+        take_back(family(cid), None)
+
+    fresh, seen = [], set()
+    for it in order.items:
+        cid = it.client_id
+        if not cid:
+            fresh.append(it)
+            continue
+        if cid in seen:                 # the same id twice in one request
+            continue
+        seen.add(cid)
+        fam = family(cid)
+        if not fam:
+            fresh.append(it)
+            continue
+        delta = it.quantity - sum(r["quantity"] for r in fam)
+        if delta > 1e-9:
+            used = {r["client_id"] for r in fam}
+            k = len(fam)
+            while f"{cid}+{k}" in used:
+                k += 1
+            fresh.append(it.model_copy(update={"quantity": delta, "client_id": f"{cid}+{k}"}))
+        elif delta < -1e-9:
+            take_back(fam, -delta)
+    return fresh
+
+
+def _tidy_open_order(conn, table_no: int) -> None:
+    """After lines were taken back: refresh the open bill's total, or remove
+    the bill if it has no lines left (so the table turns free)."""
+    row = conn.execute("SELECT id FROM orders WHERE table_no=? AND status='open'",
+                       (table_no,)).fetchone()
+    if not row:
+        return
+    left = conn.execute("SELECT COUNT(*) AS c FROM order_items WHERE order_id=?",
+                        (row["id"],)).fetchone()["c"]
+    if left == 0:
+        conn.execute("DELETE FROM orders WHERE id=?", (row["id"],))
+    else:
+        conn.execute("UPDATE orders SET total_amount=? WHERE id=?",
+                     (_order_total(conn, row["id"]), row["id"]))
+
+
 @app.post("/create-order")
 def create_order(order: OrderCreate, role: str = Depends(auth.current_role)):
     # QR customers' items arrive 'pending' (staff must accept). Staff items
     # (waiter or checkout) are 'confirmed' immediately.
     item_status = "pending" if role == "customer" else "confirmed"
 
+    # An order needs at least one product. (The only exception: a QR customer
+    # taking back products after a lost answer — see OrderCreate.withdraw.)
+    if not order.items and not (role == "customer" and order.withdraw):
+        raise HTTPException(status_code=400, detail="Sipariş boş")
+
     # Guards apply ONLY to QR customers; staff are trusted.
     if role == "customer":
         if not _valid_table(order.table_no):
             raise HTTPException(status_code=400, detail="Geçersiz masa numarası")
+        # A customer can only order what is on the menu, in whole, sensible
+        # quantities. (Off-menu names would be billed at the price the phone
+        # sent; huge or fractional quantities break the bill.)
+        if len(order.items) > CUSTOMER_MAX_LINES:
+            raise HTTPException(status_code=400, detail="Sipariş çok uzun")
+        for it in order.items:
+            if it.product_name not in _PRICE:
+                raise HTTPException(status_code=400,
+                                    detail="Menü güncellenmiş, lütfen sayfayı yenileyin")
+            if it.quantity != int(it.quantity) or it.quantity > CUSTOMER_MAX_QTY:
+                raise HTTPException(status_code=400, detail="Geçersiz adet")
         now_t = _time.time()
+        # A request that only takes products back (no items) adds nothing, so
+        # it is not counted against / blocked by the order rate limit.
         with _throttle_lock:
             recent = [t for t in _recent_orders[order.table_no] if now_t - t < CUSTOMER_WINDOW_SEC]
-            if len(recent) >= CUSTOMER_MAX_PER_WINDOW:
-                raise HTTPException(status_code=429, detail="Çok fazla sipariş, lütfen biraz bekleyin")
-            recent.append(now_t)
+            if order.items:
+                if len(recent) >= CUSTOMER_MAX_PER_WINDOW:
+                    raise HTTPException(status_code=429, detail="Çok fazla sipariş, lütfen biraz bekleyin")
+                recent.append(now_t)
             _recent_orders[order.table_no] = recent
 
-    with db() as conn:
+    with db(write=True) as conn:
+        # The table must still exist (Ayarlar → Masalar may have removed it
+        # while this device was still showing it). Checked in the database
+        # inside the write transaction — a bill on a removed table would be
+        # invisible on every screen and could never be paid.
+        if order.items and not conn.execute(
+                "SELECT 1 FROM cafe_tables WHERE table_no=?", (order.table_no,)).fetchone():
+            raise HTTPException(status_code=400,
+                                detail="Bu masa artık yok — lütfen sayfayı yenileyin")
+        # Skip lines this server has already stored (a retried save whose first
+        # answer was lost). Checked inside the write transaction, so a retry
+        # that overlaps the original request waits and then sees its lines.
+        items = order.items
+        sent_ids = [i.client_id for i in items if i.client_id]
+        if role == "customer":
+            # QR: converge to the phone's cart (see _converge_customer_lines).
+            items = _converge_customer_lines(conn, order)
+            if not items:
+                _tidy_open_order(conn, order.table_no)
+                return {"status": "order_saved", "order_id": None, "total": None,
+                        "item_status": item_status, "duplicate": True}
+        elif sent_ids:
+            have = {r["client_id"] for r in conn.execute(
+                f"SELECT client_id FROM order_items"
+                f" WHERE client_id IN ({','.join('?' * len(sent_ids))})", sent_ids).fetchall()}
+            fresh = []
+            for i in items:
+                if i.client_id and i.client_id in have:
+                    continue
+                if i.client_id:
+                    have.add(i.client_id)      # also drops a repeat inside this request
+                fresh.append(i)
+            if not fresh:
+                log.info("Order save repeated for table %s: %d line(s) already stored, nothing added",
+                         order.table_no, len(items))
+                return {"status": "order_saved", "order_id": None, "total": None,
+                        "item_status": item_status, "duplicate": True}
+            items = fresh
+
         existing = conn.execute(
             "SELECT id FROM orders WHERE table_no=? AND status='open'",
             (order.table_no,)
@@ -1401,12 +1684,12 @@ def create_order(order: OrderCreate, role: str = Depends(auth.current_role)):
                 ).fetchone()["id"]
 
         now = datetime.now().isoformat()
-        for item in order.items:
+        for item in items:
             conn.execute(
-                "INSERT INTO order_items (order_id, product_name, quantity, price, created_at, item_status)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO order_items (order_id, product_name, quantity, price, created_at,"
+                " item_status, client_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (order_id, item.product_name, item.quantity,
-                 _price_of(item.product_name, item.price), now, item_status)
+                 _price_of(item.product_name, item.price), now, item_status, item.client_id)
             )
 
         total = _order_total(conn, order_id)
@@ -1415,8 +1698,10 @@ def create_order(order: OrderCreate, role: str = Depends(auth.current_role)):
     return {"status": "order_saved", "order_id": order_id, "total": total, "item_status": item_status}
 
 
+# Bills are staff-only: the QR page never reads them, so a device that is not
+# logged in (anyone on the WiFi) gets 403 instead of a table's order and total.
 @app.get("/table/{table_no}")
-def get_table(table_no: int):
+def get_table(table_no: int, role: str = Depends(auth.require("waiter"))):
     with db() as conn:
         order = conn.execute(
             "SELECT * FROM orders WHERE table_no=? AND status='open'",
@@ -1428,8 +1713,8 @@ def get_table(table_no: int):
                     "valid": _valid_table(table_no)}
 
         items = conn.execute(
-            "SELECT id, product_name, quantity, price, created_at, paid_qty, item_status FROM order_items"
-            " WHERE order_id=? ORDER BY created_at ASC",
+            "SELECT id, product_name, quantity, price, created_at, paid_qty, item_status, client_id,"
+            " delivered_at FROM order_items WHERE order_id=? ORDER BY created_at ASC",
             (order["id"],)
         ).fetchall()
 
@@ -1444,7 +1729,6 @@ def get_table(table_no: int):
             "name": _TABLE_NAMES.get(table_no), "label": table_label(table_no),
             "valid": _valid_table(table_no),
             "order_id": order["id"],
-            "barista_status": order["barista_status"] or "hazırlanıyor",
             "created_at": order["created_at"],
             "open_seconds": _open_seconds(order["created_at"]),
             "items": [dict(i) for i in items],
@@ -1454,7 +1738,7 @@ def get_table(table_no: int):
         }
 
 
-@app.get("/tables-status")
+@app.get("/tables-status", dependencies=[Depends(auth.require("waiter"))])
 def tables_status():
     with db() as conn:
         rows = conn.execute(
@@ -1466,9 +1750,16 @@ def tables_status():
             " JOIN order_items i ON i.order_id = o.id"
             " WHERE o.status='open' AND i.item_status='pending'"
         ).fetchall()
+        # Tables with accepted products that have not been brought yet.
+        undeliv = conn.execute(
+            "SELECT DISTINCT o.table_no FROM orders o"
+            " JOIN order_items i ON i.order_id = o.id"
+            " WHERE o.status='open' AND i.item_status='confirmed' AND i.delivered_at IS NULL"
+        ).fetchall()
     return {
         "open_tables": [r["table_no"] for r in rows],
         "pending_tables": [r["table_no"] for r in pend],
+        "undelivered_tables": [r["table_no"] for r in undeliv],
         # How long each open table has been open, by the SERVER's clock — a
         # phone/tablet with a wrong clock still shows the right duration.
         "open_seconds": {str(r["table_no"]): _open_seconds(r["created_at"]) for r in rows},
@@ -1531,7 +1822,7 @@ def cancel_order(data: CancelRequest, role: str = Depends(auth.require("checkout
     İptal Edilenler log first (same transaction). Refused if any unit is already
     paid (split payment) — deleting it would break the books."""
     reason, note = _check_reason(data.reason, data.note)
-    with db() as conn:
+    with db(write=True) as conn:
         order = conn.execute(
             "SELECT id FROM orders WHERE table_no=? AND status='open'", (data.table_no,)
         ).fetchone()
@@ -1555,21 +1846,36 @@ def cancel_order(data: CancelRequest, role: str = Depends(auth.require("checkout
     return {"status": "cancelled", "lines": len(items)}
 
 
-@app.post("/update-order-status", dependencies=[Depends(auth.require("waiter"))])
-def update_order_status(data: StatusUpdate):
-    with db() as conn:
-        conn.execute(
-            "UPDATE orders SET barista_status=? WHERE id=?",
-            (data.status, data.order_id)
-        )
-    return {"status": "updated"}
+@app.post("/mark-delivered", dependencies=[Depends(auth.require("waiter"))])
+def mark_delivered(data: DeliverRequest):
+    """"Teslim Edildi": the products of a table were brought to it (waiter or
+    checkout). Marks the accepted, not-yet-delivered lines of the table's open
+    bill — only the ones the device was showing (item_ids), so a product another
+    device added a second ago is not ticked off unseen. Purely informational:
+    it never changes amounts, payments or reports."""
+    with db(write=True) as conn:
+        order = conn.execute(
+            "SELECT id FROM orders WHERE table_no=? AND status='open'", (data.table_no,)
+        ).fetchone()
+        if not order:
+            raise HTTPException(status_code=400, detail="Açık adisyon yok")
+        sql = ("UPDATE order_items SET delivered_at=? WHERE order_id=?"
+               " AND item_status='confirmed' AND delivered_at IS NULL")
+        args = [datetime.now().isoformat(), order["id"]]
+        if data.item_ids is not None:
+            if not data.item_ids:
+                return {"status": "delivered", "lines": 0}
+            sql += f" AND id IN ({','.join('?' * len(data.item_ids))})"
+            args += data.item_ids
+        done = conn.execute(sql, args).rowcount
+    return {"status": "delivered", "lines": done}
 
 
 @app.post("/accept-order", dependencies=[Depends(auth.require("waiter"))])
 def accept_order(data: AcceptItems):
     """Confirm pending QR items on a table (waiter or checkout). If item_ids
     is omitted, accept ALL pending items on the table."""
-    with db() as conn:
+    with db(write=True) as conn:
         order = conn.execute(
             "SELECT id FROM orders WHERE table_no=? AND status='open'",
             (data.table_no,)
@@ -1603,7 +1909,7 @@ def refuse_order(data: AcceptItems):
     that are still 'pending' — confirmed/paid items are never affected.
     If item_ids is omitted, refuses ALL pending items on the table.
     If refusing empties a brand-new order entirely, the empty order is removed."""
-    with db() as conn:
+    with db(write=True) as conn:
         order = conn.execute(
             "SELECT id FROM orders WHERE table_no=? AND status='open'",
             (data.table_no,)
@@ -1649,7 +1955,7 @@ def remove_item(data: RemoveItem, role: str = Depends(auth.require("waiter"))):
     (e.g. 1 of 3 Lattes). Every cancellation is written to the İptal Edilenler
     log in the same transaction."""
     reason, note = _check_reason(data.reason, data.note)
-    with db() as conn:
+    with db(write=True) as conn:
         order = conn.execute(
             "SELECT id FROM orders WHERE table_no=? AND status='open'",
             (data.table_no,)
@@ -1734,7 +2040,7 @@ def pay_table(payment: PaymentRequest):
     """Settle every remaining CONFIRMED unit with one method. QR items still
     waiting for approval are not charged; they move to a fresh open bill."""
     _validate_payment_type(payment.payment_type)
-    with db() as conn:
+    with db(write=True) as conn:
         order = conn.execute(
             "SELECT * FROM orders WHERE table_no=? AND status='open'",
             (payment.table_no,)
@@ -1835,7 +2141,7 @@ def pay_items(req: PayItemsRequest):
     for s in req.splits:
         _validate_payment_type(s.method)
 
-    with db() as conn:
+    with db(write=True) as conn:
         order = conn.execute(
             "SELECT * FROM orders WHERE table_no=? AND status='open'",
             (req.table_no,)
@@ -1955,7 +2261,7 @@ def delete_sales_log(log_id: int):
     """Correct a mistaken sale. Its sold items leave the reports too, once every
     revenue row of that payment is deleted (one leg of a cash+card split alone
     keeps the items: the goods were still sold)."""
-    with db() as conn:
+    with db(write=True) as conn:      # two legs deleted at the same moment run one after the other
         row = conn.execute("SELECT batch FROM sales_log WHERE id=?", (log_id,)).fetchone()
         conn.execute("DELETE FROM sales_log WHERE id=?", (log_id,))
         if row and row["batch"] and not conn.execute(
@@ -2600,13 +2906,14 @@ def report_daily(date: Optional[str] = None):
         day = Date.fromisoformat(day).isoformat()
     except ValueError:
         raise HTTPException(status_code=400, detail="Geçersiz tarih (YYYY-AA-GG)")
+    fp = _day_fingerprint(day)      # BEFORE the PDF: a sale landing meanwhile is seen later
     pdf = _build_daily_pdf(day)
     # Made by hand → it IS that day's report: saved like the automatic one, so
     # the 23:59 run finds it and doesn't make another. Only for days that have
     # started and had activity; a failure here never blocks the download.
     if config.DAILY_REPORT_ENABLED and day <= Date.today().isoformat() and _day_has_activity(day):
         try:
-            daily_reports.save_manual(day, pdf)
+            daily_reports.save_manual(day, pdf, fp)
         except Exception as e:
             log.warning("Could not save the manual daily report %s: %r", day, e)
     fname = f"gunluk_{day}.pdf"
@@ -2758,6 +3065,21 @@ def report_monthly(year: Optional[int] = None, month: Optional[int] = None):
 # =====================================================
 # ERROR HANDLER (clean JSON instead of raw 500s)
 # =====================================================
+
+@app.exception_handler(sqlite3.OperationalError)
+async def database_busy(request, exc):
+    """The database stayed locked longer than busy_timeout (10 s) — e.g. the
+    disk is very slow at that moment. Nothing of this request was written (the
+    transaction is rolled back), so pressing the button again is always safe.
+    Say so plainly instead of a bare 500."""
+    msg = str(exc).lower()
+    if "locked" in msg or "busy" in msg:
+        log.warning("Database busy on %s %s: %s", request.method, request.url.path, exc)
+        return JSONResponse(status_code=503, headers={"Retry-After": "2"},
+                            content={"detail": "Sistem şu an meşgul, işlem yapılmadı. Lütfen tekrar deneyin."})
+    log.exception("Database error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"error": "internal_error"})
+
 
 @app.exception_handler(Exception)
 async def unhandled(request, exc):

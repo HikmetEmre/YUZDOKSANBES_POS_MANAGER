@@ -7,9 +7,13 @@
 #     evening). A time before 12:00 (e.g. "04:00") means "the next morning"
 #     instead. Sales are dated by when they were paid, exactly like the manual
 #     report.
-#   - Late changes: if anything is paid, cancelled or entered for that day
-#     after its PDF was saved (e.g. a bill paid at 23:59:40), the PDF is made
-#     again once the day is over, so the saved report is always the final one.
+#   - Late changes: a fingerprint of the day's data is stored next to each
+#     PDF. If anything the report shows changes afterwards — a bill paid at
+#     23:59:40, a sale deleted, yesterday's invoices entered as expenses the
+#     next morning, a task ticked done — the fingerprint no longer matches and
+#     the PDF (and its Drive copy) is made again at the next check, for every
+#     day of the catch-up window. A day that had nothing at report time but
+#     gets its first entry later is created the same way.
 #   - Saved to <data dir>\reports\gunluk\gunluk_YYYY-MM-DD.pdf (ProgramData for
 #     the installed app) and mirrored to <Google Drive>\pos-reports\<PC>\.
 #   - Catch-up: if the PC was off (weekend, power cut) every missed day of the
@@ -22,6 +26,7 @@
 # =====================================================
 from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
+import json
 import logging
 import os
 import threading
@@ -33,6 +38,7 @@ import paths
 log = logging.getLogger("daily_reports")
 
 STATE_KEY = "last_daily_report"      # app_settings: newest day saved locally
+FP_FILE = "fingerprints.json"        # in local_dir(): {day: fingerprint of its data}
 DEFAULT_AT = dtime(23, 59)
 
 
@@ -99,17 +105,84 @@ def _write_atomic(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+_fp_lock = threading.Lock()           # the report thread and a manual report both write FP_FILE
+
+
+def _load_fps(ldir: Path) -> dict:
+    try:
+        data = json.loads((ldir / FP_FILE).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}                             # missing/unreadable -> every day counts as "unknown"
+
+
+def _store_fp(ldir: Path, day_iso: str, fp: str, keep_from: str = "") -> None:
+    """Remember the fingerprint a day's PDF was built from (and forget days
+    older than keep_from)."""
+    with _fp_lock:
+        fps = {d: v for d, v in _load_fps(ldir).items() if d >= keep_from}
+        fps[day_iso] = fp
+        _write_atomic(ldir / FP_FILE, json.dumps(fps, indent=0, sort_keys=True).encode("utf-8"))
+
+
+def _run_fingerprinted(newest: date, window_start: date, ldir: Path, build_pdf,
+                       has_activity, get_state, set_state, fingerprint) -> list[str]:
+    """Keep every finished day of the window in step with its data.
+
+    For each day: take the fingerprint of the data FIRST, then (re)build the PDF
+    if the stored fingerprint differs. Taking it first means a sale that lands
+    while the PDF is being built is noticed at the next check.
+      - no PDF, activity         -> create (first run, catch-up, or first entry made late)
+      - PDF, other fingerprint   -> rebuild (late sale, deleted sale, edited expense ...)
+      - PDF, no fingerprint      -> rebuild once (a PDF from before fingerprints existed)
+      - no PDF, same fingerprint -> leave (nothing new; e.g. the owner removed the file)
+    """
+    try:
+        last = date.fromisoformat(get_state() or "")
+    except ValueError:
+        last = None
+    written = []
+    lo = window_start.isoformat()
+    day = window_start
+    while day <= newest:
+        iso = day.isoformat()
+        target = ldir / file_name(day)
+        fp = fingerprint(iso)
+        with _fp_lock:
+            stored = _load_fps(ldir).get(iso)
+        if stored != fp:
+            exists = target.exists()
+            if exists or has_activity(iso):
+                _write_atomic(target, build_pdf(iso))
+                written.append(iso)
+                log.info("Daily report %s: %s", "updated" if exists else "saved", target)
+            _store_fp(ldir, iso, fp, keep_from=lo)
+        if last is None or day > last:
+            set_state(iso)
+            last = day
+        day += timedelta(days=1)
+    return written
+
+
 def run_once(now: datetime, build_pdf, has_activity, get_state, set_state,
-             changed_since=None) -> list[str]:
+             changed_since=None, fingerprint=None) -> list[str]:
     """Create every missing finished day's report. Injected callables keep this
     testable without a server:
         build_pdf(day_iso) -> bytes     has_activity(day_iso) -> bool
         get_state() -> 'YYYY-MM-DD'|None    set_state(day_iso)
-        changed_since(day_iso, since_iso) -> bool   (optional: late-change refresh)
+        fingerprint(day_iso) -> str     (hash of the data the PDF shows; with it,
+                                         ANY later change remakes the PDF)
+        changed_since(day_iso, since_iso) -> bool   (older late-change check,
+                                         used only when no fingerprint is given)
     Returns the days written locally in this run."""
     newest = last_finished_day(now)
     catchup = int(getattr(config, "DAILY_REPORT_CATCHUP_DAYS", 31))
     window_start = newest - timedelta(days=catchup - 1)
+    if fingerprint:
+        written = _run_fingerprinted(newest, window_start, local_dir(), build_pdf,
+                                     has_activity, get_state, set_state, fingerprint)
+        _sync_mirrors(local_dir(), window_start)
+        return written
     oldest = window_start
     last = get_state()
     if last:
@@ -183,16 +256,19 @@ def _sync_mirrors(ldir: Path, since: date) -> None:
                 break
 
 
-def save_manual(day_iso: str, pdf: bytes) -> Path:
+def save_manual(day_iso: str, pdf: bytes, fingerprint: str = None) -> Path:
     """A daily report made by hand (dashboard) is saved as that day's report,
     so a café that closes early and makes its report itself doesn't get a
     second one at 23:59: the automatic run sees the file and skips the day.
-    (If something is still paid/cancelled for that day afterwards, the usual
-    late-change rule makes it again after midnight.) The Drive copy is made in
+    `fingerprint` is the day's data fingerprint taken just BEFORE the PDF was
+    built; with it stored, the automatic run remakes the report only if
+    something for that day changes afterwards. The Drive copy is made in
     the background so the download never waits for Drive."""
     day = date.fromisoformat(day_iso)
     target = local_dir() / file_name(day)
     _write_atomic(target, pdf)
+    if fingerprint:
+        _store_fp(local_dir(), day_iso, fingerprint)
     log.info("Daily report saved (made manually): %s", target)
 
     def mirror():
@@ -212,7 +288,8 @@ def status() -> dict:
             "mirrors": [str(d) for d in mirror_dirs()]}
 
 
-def start(build_pdf, has_activity, get_state, set_state, changed_since=None) -> None:
+def start(build_pdf, has_activity, get_state, set_state, changed_since=None,
+          fingerprint=None) -> None:
     """Run run_once now, then every DAILY_REPORT_CHECK_MIN and exactly at
     DAILY_REPORT_AT, in a daemon thread."""
     every = max(1, int(getattr(config, "DAILY_REPORT_CHECK_MIN", 10))) * 60
@@ -222,7 +299,7 @@ def start(build_pdf, has_activity, get_state, set_state, changed_since=None) -> 
         while True:
             try:
                 run_once(datetime.now(), build_pdf, has_activity, get_state, set_state,
-                         changed_since)
+                         changed_since, fingerprint)
                 _status["last_run"] = datetime.now().isoformat(timespec="seconds")
                 _status["last_error"] = None
                 last_err = None

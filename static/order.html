@@ -35,12 +35,15 @@
     .cart-body { overflow-y:auto; padding:4px 0; -webkit-overflow-scrolling:touch; }
     .cart-empty { text-align:center; color:#bbb; padding:18px; font-size:13px; }
     .crow { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid #f3f0ea; }
-    .crow .nm { flex:1; font-size:14px; }
+    .crow .nm { flex:1; font-size:14px; min-width:0; overflow-wrap:anywhere; }
     .crow .pr { font-weight:bold; color:#b30000; min-width:56px; text-align:right; }
     .step { width:32px; height:32px; border:1.5px solid #ccc; border-radius:7px; background:#fff;
             font-size:18px; font-weight:bold; cursor:pointer; }
     .step:active { background:#eee; }
     .qty { min-width:24px; text-align:center; font-weight:bold; }
+    .rm { width:32px; height:32px; border:1.5px solid #e3b5b5; border-radius:7px; background:#fff;
+          color:#b30000; font-size:15px; font-weight:bold; cursor:pointer; flex-shrink:0; }
+    .rm:active { background:#fde8e8; }
     .send { margin:10px 14px 14px; padding:16px; border:none; border-radius:12px; background:#1a1a1a;
             color:#F4EFE6; font-size:16px; font-weight:bold; cursor:pointer; width:calc(100% - 28px); }
     .send:disabled { opacity:0.4; }
@@ -84,6 +87,17 @@
     let MENU = {}, CURRENCY = '₺';
     function esc(s){return String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
     let cart = {};   // name -> {name, price, qty}
+    let MENU_ITEMS = [];   // flat product list; buttons refer to it by index
+    // Every product in the cart keeps one id until the order is confirmed by
+    // the server: if "Gönder" is pressed again after a lost answer — even after
+    // adding something more — what the server already has is not added twice.
+    // Ids of a send that failed: the server MAY have them. If the customer then
+    // removes such a product, the next send tells the server to take it back.
+    let maybeSent = new Set(), withdrawn = [];
+    function newId(){
+        if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+        return 'q'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12)+Math.random().toString(36).slice(2,12);
+    }
 
     function showToast(msg) {
         const t = document.getElementById('toast');
@@ -109,15 +123,17 @@
 
     function buildMenu() {
         let cats = '', menu = '';
+        MENU_ITEMS = [];
         Object.entries(MENU).forEach(([cat, items], idx) => {
             const id = 'c' + idx;
-            cats += `<button class="cat-btn ${idx===0?'active':''}" onclick="showCat('${id}',this)">${cat}</button>`;
+            cats += `<button class="cat-btn ${idx===0?'active':''}" onclick="showCat('${id}',this)">${esc(cat)}</button>`;
             menu += `<div class="menu-grid ${idx===0?'active':''}" id="${id}">`;
             items.forEach(it => {
-                const safe = it.name.replace(/'/g,"\\'");
-                menu += `<button class="item-btn" onclick="addItem('${safe}',${it.price})">
+                // only a number goes into onclick — a quote in a name can't break it
+                const i = MENU_ITEMS.push(it) - 1;
+                menu += `<button class="item-btn" onclick="addMenuItem(${i})">
                     <span class="item-name">${esc(it.name)}</span>
-                    <span class="item-price">${it.price} ${CURRENCY}</span></button>`;
+                    <span class="item-price">${esc(it.price)} ${esc(CURRENCY)}</span></button>`;
             });
             menu += `</div>`;
         });
@@ -132,17 +148,26 @@
         btn.classList.add('active');
     }
 
+    function addMenuItem(i) { const it = MENU_ITEMS[i]; if(it) addItem(it.name, it.price); }
     function addItem(name, price) {
-        if(!cart[name]) cart[name] = {name, price, qty:0};
+        if(!cart[name]) cart[name] = {name, price, qty:0, cid:newId()};
         cart[name].qty++;
         renderCart();
     }
     function changeQty(name, d) {
         if(!cart[name]) return;
         cart[name].qty += d;
-        if(cart[name].qty <= 0) delete cart[name];
+        if(cart[name].qty <= 0) {
+            if(maybeSent.has(cart[name].cid)) withdrawn.push(cart[name].cid);
+            delete cart[name];
+            // everything removed: nothing left to "send", so take it back right away
+            if(Object.keys(cart).length === 0 && withdrawn.length) flushWithdraw();
+        }
         renderCart();
     }
+    // ✕ : take the whole product out of the cart in one tap (wrong product chosen)
+    function removeAt(k) { const name = Object.keys(cart)[k]; if(name !== undefined) changeQty(name, -cart[name].qty); }
+    function changeQtyAt(k, d) { const name = Object.keys(cart)[k]; if(name !== undefined) changeQty(name, d); }
 
     function renderCart() {
         const items = Object.values(cart);
@@ -154,14 +179,15 @@
             return;
         }
         let html = '', total = 0;
-        items.forEach(i => {
+        items.forEach((i, k) => {
             total += i.qty * i.price;
             html += `<div class="crow">
-                <button class="step" onclick="changeQty('${i.name.replace(/'/g,"\\'")}',-1)">−</button>
+                <button class="step" onclick="changeQtyAt(${k},-1)">−</button>
                 <span class="qty">${i.qty}</span>
-                <button class="step" onclick="changeQty('${i.name.replace(/'/g,"\\'")}',1)">+</button>
+                <button class="step" onclick="changeQtyAt(${k},1)">+</button>
                 <span class="nm">${esc(i.name)}</span>
                 <span class="pr">${(i.qty*i.price).toFixed(0)} ${CURRENCY}</span>
+                <button class="rm" onclick="removeAt(${k})" aria-label="Ürünü çıkar" title="Ürünü çıkar">✕</button>
             </div>`;
         });
         body.innerHTML = html;
@@ -169,21 +195,39 @@
         document.getElementById('sendBtn').disabled = false;
     }
 
+    // The cart was emptied after a failed send: ask the server to drop whatever
+    // it stored from that send (only lines staff have not accepted yet).
+    async function flushWithdraw() {
+        const ids = withdrawn.slice();
+        try {
+            const res = await fetch('/create-order', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({table_no: TABLE, items: [], withdraw: ids})
+            });
+            if(res.ok) { withdrawn = withdrawn.filter(c => !ids.includes(c)); ids.forEach(c => maybeSent.delete(c)); }
+        } catch(e) {}      // still offline: sent along with the next order instead
+    }
+
     async function sendOrder() {
-        const items = Object.values(cart).map(i => ({product_name:i.name, quantity:i.qty, price:i.price}));
-        if(items.length === 0) return;
+        if(Object.keys(cart).length === 0) return;
+        const items = Object.values(cart).map(i => ({product_name:i.name, quantity:i.qty, price:i.price,
+                                                      client_id: i.cid || (i.cid = newId())}));
         document.getElementById('sendBtn').disabled = true;
         try {
             // No token => server treats this as 'customer' => order lands 'pending'.
             const res = await fetch('/create-order', {
                 method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({table_no: TABLE, items})
+                body: JSON.stringify({table_no: TABLE, items, withdraw: withdrawn})
             });
-            if(!res.ok) throw new Error();
-            cart = {}; renderCart();
+            if(!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                throw new Error(typeof d.detail === 'string' ? d.detail : '');
+            }
+            cart = {}; maybeSent = new Set(); withdrawn = []; renderCart();
             showToast('Siparişiniz alındı! ✓\nGörevli onaylayacaktır.');
         } catch(e) {
-            showToast('Gönderilemedi, tekrar deneyin.');
+            items.forEach(i => maybeSent.add(i.client_id));      // the server may have stored them
+            showToast(e.message && !/fetch|network|load/i.test(e.message) ? e.message : 'Gönderilemedi, tekrar deneyin.');
             document.getElementById('sendBtn').disabled = false;
         }
     }

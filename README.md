@@ -6,7 +6,7 @@
 
 **A self-hosted point-of-sale and café management system that runs on one Windows PC and serves every phone, tablet and QR menu on the café Wi-Fi.**
 
-![Version](https://img.shields.io/badge/version-1.4.2-2ea44f)
+![Version](https://img.shields.io/badge/version-1.5.0-2ea44f)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.137-009688?logo=fastapi&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
@@ -237,7 +237,7 @@ erDiagram
         text created_at
         text paid_at
         real total_amount
-        text barista_status
+        text barista_status "unused since Teslim Edildi"
     }
     order_items {
         int id PK
@@ -247,6 +247,8 @@ erDiagram
         real price "server-side menu price"
         real paid_qty "per-item split payment"
         text item_status "pending (QR) | confirmed"
+        text client_id "per-line id, makes a retried save harmless"
+        text delivered_at "set by Teslim Edildi"
     }
     payments {
         int id PK
@@ -439,7 +441,8 @@ All settings live in [`config.py`](config.py). The most useful ones:
 | `BACKUP_EVERY_MIN` | `60` | Backup interval |
 | `BACKUP_KEEP_HOURLY` / `_DAILY` | `24` / `14` | Rolling retention |
 | `MONITOR_ENABLED`, `MONITOR_EVERY_SEC` | `True`, `30` | Live status picture |
-| `AUTH_MAX_FAILS`, `AUTH_WINDOW_SEC` | `5`, `300` | Login brute-force lockout |
+| `AUTH_MAX_FAILS`, `AUTH_WINDOW_SEC` | `5`, `300` | Login brute-force lockout (per device) |
+| `AUTH_GLOBAL_MAX_FAILS`, `AUTH_GLOBAL_WINDOW_SEC` | `30`, `3600` | After this many wrong PINs from all devices together, only known devices may try |
 
 Environment overrides: `POS_DATA_DIR`, `POS_CHECKOUT_PIN`, `POS_WAITER_PIN`, `POS_SECRET_KEY`, `POS_BACKUP_MIRRORS`, `POS_MONITOR_DIR`.
 
@@ -466,11 +469,11 @@ All endpoints return JSON unless noted. 🔒 = staff token required, 👑 = `che
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/create-order` | Customer orders → *pending*, staff orders → open bill |
-| GET | `/table/{table_no}` | Bill, name and label |
+| GET | `/table/{table_no}` 🔒 | Bill, name and label |
 | GET | `/tables-status` 🔒 | Which tables are open |
 | GET | `/pending` 🔒 | QR orders waiting for approval |
 | POST | `/accept-order` · `/refuse-order` 🔒 | Act on a pending order |
-| POST | `/update-order-status` 🔒 | Preparation status |
+| POST | `/mark-delivered` 🔒 | "Teslim Edildi": products were brought to the table |
 | POST | `/remove-item` 🔒 | Remove one line, with a reason |
 | POST | `/cancel-order` 👑 | Cancel a whole bill, with a reason |
 | POST | `/pay` · `/pay-items` 👑 | Full or per-item payment |

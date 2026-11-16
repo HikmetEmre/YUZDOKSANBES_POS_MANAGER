@@ -60,6 +60,14 @@ USING_PLACEHOLDER_PINS = (
 # its oldest failure ages past the window. A correct PIN clears the counter.
 AUTH_MAX_FAILS  = 5
 AUTH_WINDOW_SEC = 300       # 5 minutes
+# Second line of defence, for someone who changes device/IP address to get new
+# tries: wrong PINs are also counted over ALL devices together. After
+# AUTH_GLOBAL_MAX_FAILS of them within AUTH_GLOBAL_WINDOW_SEC, only devices that
+# have logged in correctly before (and the POS computer itself) may still try;
+# every other device must wait. Staff devices already in use are not affected.
+AUTH_GLOBAL_MAX_FAILS  = 30
+AUTH_GLOBAL_WINDOW_SEC = 3600   # 1 hour
+AUTH_TRUSTED_DAYS      = 60     # how long a device stays "known" after a correct login
 
 
 def _load_secret_key() -> str:

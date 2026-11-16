@@ -973,7 +973,7 @@
                         <input id="byo_${it.id}" placeholder="isim" style="display:none;width:80px;padding:7px;border:1px solid var(--line);border-radius:7px;margin-top:4px;">
                     </td>
                     <td style="padding-left:14px;"><button class="btn-save-sm" onclick="saveCount(${it.id})">Kaydet</button></td>
-                    <td style="padding-left:8px;padding-right:6px;"><button class="t-del" onclick="delStockItem(${it.id},'${esc(it.name).replace(/'/g,"")}')">✕</button></td>
+                    <td style="padding-left:8px;padding-right:6px;"><button class="t-del" onclick="delStockItem(${it.id})">✕</button></td>
                 </tr>`;
             }).join('')}
             </table>`;
@@ -1037,7 +1037,8 @@
         loadStock();
     }
 
-    async function delStockItem(id, name) {
+    async function delStockItem(id) {
+        const it = stockItems.find(x => x.id === id), name = it ? it.name : '';
         if(!confirm(`"${name}" stok listesinden silinsin mi?`)) return;
         await authFetch('/stock/delete-item',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
         loadStock(); loadStockLogs();

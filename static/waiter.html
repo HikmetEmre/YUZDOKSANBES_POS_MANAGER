@@ -5,7 +5,7 @@
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>YUZDOKSANBES — Barista</title>
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 <style>
     /* Waiter-specific tweaks layered on the shared stylesheet */
     .role-badge { font-size:11px; background:#ce93d8; color:#1a1a1a; font-weight:bold;
@@ -75,7 +75,10 @@
             <div class="cart">
                 <div class="cart-header">
                     <h3>SİPARİŞ LİSTESİ</h3>
-                    <span id="orderTime"></span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div id="deliverBox"></div>
+                        <span id="orderTime"></span>
+                    </div>
                 </div>
                 <div class="cart-body">
                     <div id="cart"><div class="cart-empty">Sipariş listesi boş</div></div>
@@ -99,8 +102,11 @@
 <script>
     // ===== auth =====
     let AUTH_TOKEN = sessionStorage.getItem('waiter_token') || null;
+    let leavingOk = false;   // true while logging out / session expired (no "unsaved" warning)
     function logout(){
-        if(!confirm('Çıkış yapılsın mı?')) return;
+        const unsaved = (typeof cart !== 'undefined' ? cart : []).filter(i=>i.isNew).length;
+        if(!confirm(unsaved ? `Kaydedilmemiş ${unsaved} ürün var ve SİLİNECEK.\n\nYine de çıkış yapılsın mı?` : 'Çıkış yapılsın mı?')) return;
+        leavingOk = true;
         sessionStorage.removeItem('waiter_token');
         AUTH_TOKEN=null; location.reload();
     }
@@ -113,7 +119,7 @@
     }
     let _expiring = false;
     function sessionExpired(){
-        if(_expiring) return; _expiring = true;
+        if(_expiring) return; _expiring = true; leavingOk = true;
         sessionStorage.removeItem('waiter_token'); AUTH_TOKEN=null;
         alert('Oturum sona erdi (şifre değişmiş olabilir). Lütfen yeniden giriş yapın.');
         location.reload();
@@ -172,9 +178,9 @@
     function buildTables(){
         let tabs='',grids='';
         AREAS.forEach((a,idx)=>{
-            tabs+=`<button class="area-tab ${idx===0?'active':''}" id="areaTab_${a.id}" onclick="showArea('${a.id}',this)">${a.name}</button>`;
+            tabs+=`<button class="area-tab ${idx===0?'active':''}" id="areaTab_${a.id}" onclick="showArea('${a.id}',this)">${esc(a.name)}</button>`;
             grids+=`<div class="tables area-grid" id="areaGrid_${a.id}" style="display:${idx===0?'flex':'none'};">`;
-            a.tables.forEach(n=>grids+=`<button class="table-btn${TableNames.isNamed(n)?' t-named':''}" onclick="selectTable(${n})" id="t${n}" title="${esc(TableNames.label(n))}">${esc(TableNames.short(n))}</button>`);
+            a.tables.forEach(n=>grids+=`<button class="table-btn${TableNames.isNamed(n)?' t-named':''}" onclick="pickTable(${n})" id="t${n}" title="${esc(TableNames.label(n))}">${esc(TableNames.short(n))}</button>`);
             grids+=`</div>`;
         });
         document.getElementById('areaTabs').innerHTML=tabs;
@@ -189,12 +195,15 @@
     function buildMenu(){
         const cats=document.getElementById('categoriesContainer'), menu=document.getElementById('menuContainer');
         let cb='',sec='';
-        Object.entries(MENU).forEach(([cat,items])=>{
-            const id=cat.replace(/ /g,'_');
-            cb+=`<button class="cat-btn" onclick="showCategory('${id}',this)">${cat}</button>`;
+        // Names never go inside onclick (an apostrophe/quote would break the
+        // button): buttons carry only numbers, names are looked up in MENU_ITEMS.
+        MENU_ITEMS=[];
+        Object.entries(MENU).forEach(([cat,items],cIdx)=>{
+            const id='menuCat_'+cIdx;
+            cb+=`<button class="cat-btn" onclick="showCategory('${id}',this)">${esc(cat)}</button>`;
             sec+=`<div class="menu-grid" id="${id}" style="display:none;">`;
-            items.forEach(it=>{ const s=it.name.replace(/'/g,"\\'");
-                sec+=`<button class="menu-item-btn" onclick="addItem('${s}',${it.price})"><span class="item-name">${esc(it.name)}</span><span class="item-price">${it.price} ${CURRENCY}</span></button>`;});
+            items.forEach(it=>{ const i=MENU_ITEMS.push(it)-1;
+                sec+=`<button class="menu-item-btn" onclick="addMenuItem(${i})"><span class="item-name">${esc(it.name)}</span><span class="item-price">${esc(it.price)} ${esc(CURRENCY)}</span></button>`;});
             sec+=`</div>`;
         });
         cats.innerHTML=cb; menu.innerHTML=sec;
@@ -208,9 +217,11 @@
     async function loadAllTables(){
         try{
             const data=await (await authFetch('/tables-status')).json();
-            ALL_TABLES.forEach(n=>{const e=document.getElementById('t'+n); if(e){e.classList.remove('red');e.classList.remove('pending');}});
+            ALL_TABLES.forEach(n=>{const e=document.getElementById('t'+n); if(e){e.classList.remove('red');e.classList.remove('pending');e.classList.remove('undelivered');}});
             (data.open_tables||[]).forEach(n=>{const e=document.getElementById('t'+n); if(e)e.classList.add('red');});
             (data.pending_tables||[]).forEach(n=>{const e=document.getElementById('t'+n); if(e)e.classList.add('pending');});
+            // amber dot: something on this table has not been brought yet
+            (data.undelivered_tables||[]).forEach(n=>{const e=document.getElementById('t'+n); if(e)e.classList.add('undelivered');});
             markAreaAlerts(data.pending_tables||[]);
             Duration.paintButtons(data.open_seconds, ALL_TABLES);   // "32 dk" under busy tables
         }catch(e){}
@@ -227,6 +238,17 @@
 
     let pendingItems = [];   // QR items awaiting accept (NOT in the order list)
 
+    // A table button was tapped. Unsaved products (YENİ) are never dropped
+    // silently: same table keeps them, another table asks first.
+    async function pickTable(n){
+        const unsaved = cart.filter(i=>i.isNew).length;
+        if(unsaved && currentTable){
+            if(n===currentTable) return reloadKeepUnsaved();
+            if(!confirm(`${TableNames.label(currentTable)}: kaydedilmemiş ${unsaved} ürün var.\n\nKaydetmeden çıkılırsa bu ürünler SİLİNİR.\nTamam = sil ve ${TableNames.label(n)} aç  ·  İptal = burada kal`)) return;
+        }
+        return selectTable(n);
+    }
+
     async function selectTable(n){
         currentTable=n;
         document.querySelectorAll('.table-btn').forEach(b=>b.classList.remove('selected'));
@@ -236,6 +258,7 @@
         Duration.clearHeader(document.getElementById('orderTime'));   // empty table → no duration
         try{
             const d=await (await authFetch('/table/'+n)).json();
+            if(n!==currentTable) return;   // another table was tapped meanwhile: not ours to show
             if(d.status==='open'){
                 Duration.showHeader(document.getElementById('orderTime'), d.open_seconds, d.created_at);
                 // Pending QR items stay OUT of the order list until accepted.
@@ -244,6 +267,38 @@
             }
         }catch(e){}
         renderCart(); renderAcceptBar();
+    }
+
+    // Reload the selected table but keep products added and not saved yet (YENİ).
+    async function reloadKeepUnsaved(){
+        const unsaved = cart.filter(i=>i.isNew);
+        await selectTable(currentTable);
+        if(unsaved.length){ cart.push(...unsaved); renderCart(); }
+    }
+
+    // "Teslim Edildi": the products of this table were brought to it. Lines not
+    // delivered yet carry ⏳ and the table button an amber dot (on every device)
+    // until this is pressed. Information only — never changes amounts.
+    function renderDeliverBox(){
+        const el=document.getElementById('deliverBox'); if(!el) return;
+        const saved=cart.filter(i=>!i.isNew), waiting=saved.filter(i=>!i.delivered_at);
+        if(!currentTable || saved.length===0){ el.innerHTML=''; return; }
+        el.innerHTML = waiting.length
+            ? `<button class="deliver-btn" onclick="markDelivered()">✓ Teslim Edildi <span class="deliver-count">${waiting.length}</span></button>`
+            : `<span class="delivered-ok">✓ Teslim edildi</span>`;
+    }
+    async function markDelivered(){
+        const ids=cart.filter(i=>!i.isNew && !i.delivered_at).map(i=>i.id);
+        if(!currentTable || ids.length===0) return;
+        showLoading();
+        try{
+            const res=await authFetch('/mark-delivered',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({table_no:currentTable, item_ids:ids})});
+            if(!res.ok) throw new Error();
+            await reloadKeepUnsaved();
+            loadAllTables();
+            showToast('Teslim edildi ✓','success');
+        }catch(e){ showToast('İşaretlenemedi, tekrar deneyin','error'); } finally{ hideLoading(); }
     }
 
     function renderAcceptBar(){
@@ -261,7 +316,7 @@
         try{
             const res=await authFetch('/accept-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_no:currentTable})});
             if(!res.ok) throw new Error();
-            await selectTable(currentTable);
+            await reloadKeepUnsaved();
             loadAllTables();   // clear the table's pending ring + area signal now
             showToast('Onaylandı ✓','success');
         }catch(e){showToast('Hata!','error');} finally{hideLoading();}
@@ -273,13 +328,20 @@
         try{
             const res=await authFetch('/refuse-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table_no:currentTable})});
             if(!res.ok) throw new Error();
-            await selectTable(currentTable);
+            await reloadKeepUnsaved();
             loadAllTables();
             showToast('Reddedildi','success');
         }catch(e){showToast('Hata!','error');} finally{hideLoading();}
     }
 
     // add item -> qty modal
+    let MENU_ITEMS=[];
+    function addMenuItem(i){ const it=MENU_ITEMS[i]; if(it) addItem(it.name,it.price); }
+    // Unique id per new line: a repeated Kaydet (answer lost on WiFi) can't add it twice.
+    function newLineId(){
+        if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+        return 'l'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12)+Math.random().toString(36).slice(2,12);
+    }
     function addItem(name,price){ pendingItem={name,price}; currentQty=1;
         document.getElementById('qtyModalTitle').innerText=name;
         document.getElementById('qtyDisplay').innerText=1;
@@ -290,7 +352,8 @@
     function confirmQty(){
         if(!currentTable){ showToast('Masa seçin!','error'); closeQtyModal(); return; }
         cart.push({product_name:pendingItem.name, price:pendingItem.price, quantity:currentQty,
-                   created_at:new Date().toISOString(), isNew:true, item_status:'confirmed', paid_qty:0});
+                   created_at:new Date().toISOString(), isNew:true, item_status:'confirmed', paid_qty:0,
+                   client_id:newLineId()});
         closeQtyModal(); renderCart();
     }
 
@@ -299,7 +362,7 @@
     function renderCart(){
         const el=document.getElementById('cart');
         if(cart.length===0){ el.innerHTML='<div class="cart-empty">Sipariş listesi boş</div>';
-            document.getElementById('total').innerText='0'; return; }
+            document.getElementById('total').innerText='0'; renderDeliverBox(); return; }
         let html='<table class="cart-table"><tbody>';
         cart.forEach((item,idx)=>{
             const paidQ=item.paid_qty||0;
@@ -314,7 +377,7 @@
                 ? `<input type="number" value="${item.quantity}" min="1" onchange="updateQty(${idx},this.value)">`
                 : `<span style="color:#888;">${item.quantity}</span>`;
             html+=`<tr class="${item.isNew?'new-row':''}">
-                <td>${esc(item.product_name)}${badge}</td>
+                <td>${esc(item.product_name)}${badge}${(!item.isNew && !item.delivered_at) ? '<span class="wait-badge" title="Henüz teslim edilmedi">⏳</span>' : ''}</td>
                 <td>${qtyCell}</td>
                 <td style="font-weight:bold;">${(item.quantity*item.price).toFixed(0)} ₺</td>
                 <td>${action}</td></tr>`;
@@ -322,6 +385,7 @@
         html+='</tbody></table>';
         el.innerHTML=html;
         document.getElementById('total').innerText=getTotal().toFixed(0);
+        renderDeliverBox();
     }
     function updateQty(idx,val){ const q=parseInt(val,10); if(q>0){cart[idx].quantity=q; renderCart();} }
     async function removeItem(idx){
@@ -342,9 +406,7 @@
                 const d=await res.json().catch(()=>({}));
                 showToast(d.detail||'İptal edilemedi!','error'); return;
             }
-            const unsaved = cart.filter(i=>i.isNew);   // keep anything not yet saved
-            await selectTable(currentTable);
-            cart.push(...unsaved); renderCart();
+            await reloadKeepUnsaved();                // keep anything not yet saved
             loadAllTables();                          // table turns free if now empty
             showToast(choice.qty < item.quantity ? `${choice.qty} adet iptal edildi` : 'Ürün iptal edildi','success');
         }catch(e){ showToast('İptal edilemedi!','error'); } finally{ hideLoading(); }
@@ -361,13 +423,19 @@
         showLoading();
         try{
             const res=await authFetch('/create-order',{method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({table_no:currentTable, items:newItems.map(i=>({product_name:i.product_name,quantity:i.quantity,price:i.price}))})});
-            if(!res.ok) throw new Error();
+                body:JSON.stringify({table_no:currentTable, items:newItems.map(i=>({product_name:i.product_name,quantity:i.quantity,price:i.price,
+                                              client_id:i.client_id||(i.client_id=newLineId())}))})});
+            if(!res.ok){ const d=await res.json().catch(()=>({})); throw new Error(typeof d.detail==='string'?d.detail:''); }
             document.getElementById('t'+currentTable).classList.add('red');
             await selectTable(currentTable);
             showToast('Sipariş kaydedildi ✓','success');
-        }catch(e){ showToast('Kayıt hatası!','error'); } finally{ hideLoading(); }
+        }catch(e){ showToast(e.message && !/fetch|network|load/i.test(e.message) ? e.message : 'Kayıt hatası! Tekrar Kaydet’e basın','error'); } finally{ hideLoading(); }   // retry is safe (client_id)
     }
+
+    // Closing / reloading with unsaved products: the browser asks first.
+    window.addEventListener('beforeunload', e=>{
+        if(!leavingOk && cart.some(i=>i.isNew)){ e.preventDefault(); e.returnValue=''; }
+    });
 
     // boot
     document.getElementById('pinInput').addEventListener('keydown',e=>{ if(e.key==='Enter') checkPin(); });

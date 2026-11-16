@@ -20,11 +20,21 @@
             ));
         }
 
+        // Unique id for each NEW cart line. The server remembers it, so if a
+        // save reached the server but the answer was lost (WiFi drop) and
+        // Kaydet is pressed again, the line is not added a second time.
+        function newLineId() {
+            if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+            return 'l' + Date.now().toString(36) + '-' +
+                   Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
+        }
+
         // ── STATE ──
         let AREAS      = [];           // loaded from /config
         let ALL_TABLES = [];           // flat list of all table numbers
         let CURRENCY    = "₺";
         let MENU        = {};
+        let MENU_ITEMS  = [];          // flat product list; menu buttons refer to it by index
         let currentTable   = null;
         let cart           = [];   // {product_name, quantity, price, created_at, isNew}
         let pendingItem    = null;
@@ -33,7 +43,7 @@
         let pendingPayTotal = 0;
         let currentQty     = 1;
         let currentOrderId       = null;
-        let currentBaristaStatus = null;
+        let leavingOk            = false;   // true while logging out / session expired (no "unsaved" warning)
 
         // ════════════ PIN AUTH (verified SERVER-side) ════════════
 
@@ -43,7 +53,10 @@
         let MY_ROLE    = sessionStorage.getItem('pos_role')  || null;
 
         function logout() {
-            if(!confirm('Çıkış yapılsın mı?')) return;
+            const unsaved = cart.filter(i => i.isNew).length;
+            if(!confirm(unsaved ? `Kaydedilmemiş ${unsaved} ürün var ve SİLİNECEK.\n\nYine de çıkış yapılsın mı?`
+                                : 'Çıkış yapılsın mı?')) return;
+            leavingOk = true;
             sessionStorage.removeItem('pos_token');
             sessionStorage.removeItem('pos_role');
             sessionStorage.removeItem('pos_auth');
@@ -64,7 +77,7 @@
         }
         let _expiring = false;
         function sessionExpired() {
-            if(_expiring) return; _expiring = true;
+            if(_expiring) return; _expiring = true; leavingOk = true;
             ['pos_token', 'pos_role', 'pos_auth'].forEach(k => sessionStorage.removeItem(k));
             AUTH_TOKEN = null; MY_ROLE = null;
             alert('Oturum sona erdi (şifre değişmiş olabilir). Lütfen yeniden giriş yapın.');
@@ -128,12 +141,12 @@
             AREAS.forEach((area, idx) => {
                 tabs += `<button class="area-tab ${idx === 0 ? 'active' : ''}"
                                  id="areaTab_${area.id}"
-                                 onclick="showArea('${area.id}', this)">${area.name}</button>`;
+                                 onclick="showArea('${area.id}', this)">${esc(area.name)}</button>`;
                 grids += `<div class="tables area-grid" id="areaGrid_${area.id}"
                                style="display:${idx === 0 ? 'flex' : 'none'};">`;
                 area.tables.forEach(n => {
                     const named = TableNames.isNamed(n);
-                    grids += `<button class="table-btn${named ? ' t-named' : ''}" onclick="selectTable(${n})" id="t${n}"
+                    grids += `<button class="table-btn${named ? ' t-named' : ''}" onclick="pickTable(${n})" id="t${n}"
                                       title="${esc(TableNames.label(n))}">${esc(TableNames.short(n))}</button>`;
                 });
                 grids += `</div>`;
@@ -153,19 +166,23 @@
             const cats = document.getElementById('categoriesContainer');
             const menu = document.getElementById('menuContainer');
             let catBtns = '', sections = '';
-            for(const [category, items] of Object.entries(MENU)) {
-                const safeId = category.replace(/ /g, '_');
-                catBtns += `<button class="cat-btn" onclick="showCategory('${safeId}', this)">${esc(category)}</button>`;
-                sections += `<div class="menu-grid" id="${safeId}" style="display:none;">`;
+            // Section and product names never go inside an onclick attribute
+            // (an apostrophe or quote in a name would break the button): the
+            // buttons carry only numbers and the names are looked up here.
+            MENU_ITEMS = [];
+            Object.entries(MENU).forEach(([category, items], cIdx) => {
+                const catId = 'menuCat_' + cIdx;
+                catBtns += `<button class="cat-btn" onclick="showCategory('${catId}', this)">${esc(category)}</button>`;
+                sections += `<div class="menu-grid" id="${catId}" style="display:none;">`;
                 items.forEach(it => {
-                    const safeName = it.name.replace(/'/g, "\\'");
-                    sections += `<button class="menu-item-btn" onclick="addItem('${safeName}', ${it.price})">
+                    const i = MENU_ITEMS.push(it) - 1;
+                    sections += `<button class="menu-item-btn" onclick="addMenuItem(${i})">
                         <span class="item-name">${esc(it.name)}</span>
-                        <span class="item-price">${it.price} ${CURRENCY}</span>
+                        <span class="item-price">${esc(it.price)} ${esc(CURRENCY)}</span>
                     </button>`;
                 });
                 sections += `</div>`;
-            }
+            });
             cats.innerHTML = catBtns;
             menu.innerHTML = sections;
         }
@@ -194,7 +211,7 @@
                 const data = await res.json();
                 ALL_TABLES.forEach(n => {
                     const el = document.getElementById('t' + n);
-                    if(el) { el.classList.remove('red'); el.classList.remove('pending'); }
+                    if(el) { el.classList.remove('red'); el.classList.remove('pending'); el.classList.remove('undelivered'); }
                 });
                 data.open_tables.forEach(n => {
                     const el = document.getElementById('t' + n);
@@ -203,6 +220,11 @@
                 (data.pending_tables || []).forEach(n => {
                     const el = document.getElementById('t' + n);
                     if(el) el.classList.add('pending');
+                });
+                // Amber dot: something on this table has not been brought yet.
+                (data.undelivered_tables || []).forEach(n => {
+                    const el = document.getElementById('t' + n);
+                    if(el) el.classList.add('undelivered');
                 });
                 // Red signal on the area tab holding a table with a new QR order.
                 const pendSet = new Set((data.pending_tables || []).map(String));
@@ -230,16 +252,7 @@
             try {
                 const res = await authFetch('/sales-log/' + id, {method: 'DELETE'});
                 if(!res.ok) throw new Error();
-                cart.forEach(i => i.isNew = false);
-                document.getElementById('t' + currentTable).classList.add('red');
-                const r = await authFetch('/table/' + currentTable);
-                const d = await r.json();
-                if(d.status === 'open') {
-                    currentOrderId       = d.order_id;
-                    currentBaristaStatus = d.barista_status;
-                }
-                renderCart();
-                showToast('Sipariş kaydedildi ✓', 'success');
+                showToast('Satış kaydı silindi', 'success');
                 loadSales();
             } catch(e) {
                 showToast('Silme hatası!', 'error');
@@ -311,8 +324,9 @@
                 showToast(TableNames.label(tableNo) + ' onaylandı ✓', 'success');
                 loadPending();
                 loadAllTables();
-                // If the accepted table is currently open in POS, refresh its cart.
-                if(currentTable === tableNo) selectTable(tableNo);
+                // If the accepted table is currently open in POS, refresh its cart
+                // (products added but not saved yet stay in the list).
+                if(currentTable === tableNo) reloadTableKeepUnsaved();
             } catch(e) { showToast('Hata!', 'error'); }
             finally { hideLoading(); }
         }
@@ -329,7 +343,7 @@
                 showToast(TableNames.label(tableNo) + ' reddedildi', 'success');
                 loadPending();
                 loadAllTables();
-                if(currentTable === tableNo) selectTable(tableNo);
+                if(currentTable === tableNo) reloadTableKeepUnsaved();
             } catch(e) { showToast('Hata!', 'error'); }
             finally { hideLoading(); }
         }
@@ -346,9 +360,38 @@
 
         // ════════════ TABLE SELECTION ════════════
 
+        // Counts every load/change of the cart that came from the server. The
+        // 30 s background refresh uses it to throw away an answer that was
+        // already on its way when something newer happened (a save, a payment).
+        let cartSeq = 0;
+
+        // Reload the selected table from the server WITHOUT losing products that
+        // were added but not saved yet (YENİ).
+        async function reloadTableKeepUnsaved() {
+            const unsaved = cart.filter(i => i.isNew);
+            await selectTable(currentTable);
+            const back = unsaved.filter(u => !cart.includes(u));   // (cart is untouched if the reload failed)
+            if(back.length) { cart.push(...back); renderCart(); }
+        }
+
+        // A table button was tapped. Products added but not saved yet (YENİ)
+        // are never thrown away silently: tapping the same table keeps them,
+        // going to another table asks first.
+        async function pickTable(n) {
+            const unsaved = cart.filter(i => i.isNew).length;
+            if(unsaved && currentTable) {
+                if(n === currentTable) return reloadTableKeepUnsaved();
+                if(!confirm(`${TableNames.label(currentTable)}: kaydedilmemiş ${unsaved} ürün var.\n\n` +
+                            `Kaydetmeden çıkılırsa bu ürünler SİLİNİR.\n` +
+                            `Tamam = sil ve ${TableNames.label(n)} aç  ·  İptal = burada kal`)) return;
+            }
+            return selectTable(n);
+        }
+
         async function selectTable(n) {
             if(currentTable) document.getElementById('t' + currentTable).classList.remove('selected');
             currentTable = n;
+            cartSeq++;
             document.getElementById('t' + n).classList.add('selected');
             document.getElementById('selectedTable').innerText = TableNames.label(n);
             Duration.clearHeader(document.getElementById('orderTime'));
@@ -357,11 +400,12 @@
             try {
                 const res  = await authFetch('/table/' + n);
                 const data = await res.json();
+                if(n !== currentTable) return;      // another table was chosen meanwhile: not ours to show
+                cartSeq++;
                 cart = [];
 
                 if(data.status === 'open') {
                     currentOrderId       = data.order_id;
-                    currentBaristaStatus = data.barista_status;
                     data.items.forEach(i => {
                         // Pending QR items are NOT part of the order list yet — they
                         // live only in the Bekleyen tab until staff accept them.
@@ -373,12 +417,16 @@
                             price:        i.price,
                             created_at:   i.created_at,
                             paid_qty:     i.paid_qty || 0,
+                            client_id:    i.client_id || null,
+                            delivered_at: i.delivered_at || null,
                             isNew:        false
                         });
                     });
                     // How long the table has been open (server clock), ticking.
                     Duration.showHeader(document.getElementById('orderTime'),
                                         data.open_seconds, data.created_at);
+                } else {
+                    currentOrderId = null;      // empty table: no bill of another table lingers
                 }
                 renderCart();
             } catch(e) {
@@ -398,6 +446,11 @@
         }
 
         // ════════════ ADD ITEM — QTY MODAL ════════════
+
+        function addMenuItem(i) {
+            const it = MENU_ITEMS[i];
+            if(it) addItem(it.name, it.price);
+        }
 
         function addItem(name, price) {
             if(!currentTable) {
@@ -422,7 +475,8 @@
                 quantity:     currentQty,
                 price:        pendingItem.price,
                 created_at:   new Date().toISOString(),
-                isNew:        true
+                isNew:        true,
+                client_id:    newLineId()
             });
             closeQtyModal();
             renderCart();
@@ -459,17 +513,21 @@
                     const badge = item.isNew ? '<span class="new-badge">YENİ</span>'
                                 : fullyPaid  ? '<span class="paid-badge">ÖDENDİ</span>'
                                 : partlyPaid ? `<span class="paid-badge">${paidQ.toFixed(0)}/${item.quantity.toFixed(0)} ÖDENDİ</span>` : '';
+                    const waitBadge = (!item.isNew && !item.delivered_at)
+                                ? '<span class="wait-badge" title="Henüz teslim edilmedi">⏳</span>' : '';
                     const rowClass = item.isNew ? 'new-row' : (fullyPaid ? 'paid-row' : '');
-                    // Quantity is locked once any unit is paid (keeps accounting honest).
-                    const qtyLocked = !item.isNew && paidQ > 0;
-                    const qtyCell = qtyLocked
-                        ? `<span style="color:#aaa;">${item.quantity}</span>`
-                        : `<input type="number" value="${item.quantity}" min="1" onchange="updateQty(${idx}, this.value)">`;
+                    // Quantity can be typed only on a NEW (unsaved) line. A saved
+                    // line is changed with ✕ (cancel some/all, with a reason) or by
+                    // adding the product again — typing here was never sent to the
+                    // server, so the screen showed a total the bill did not have.
+                    const qtyCell = item.isNew
+                        ? `<input type="number" value="${item.quantity}" min="1" onchange="updateQty(${idx}, this.value)">`
+                        : `<span style="color:${paidQ > 0 ? '#aaa' : '#555'};">${+Number(item.quantity).toFixed(2)}</span>`;
                     const actionCell = (item.isNew || paidQ === 0)
                         ? `<button class="remove-btn" onclick="removeItem(${idx})">✕</button>`
                         : '';
                     html += `<tr class="${rowClass}">
-                        <td>${esc(item.product_name)}${badge}</td>
+                        <td>${esc(item.product_name)}${badge}${waitBadge}</td>
                         <td>${qtyCell}</td>
                         <td style="color:#888;font-size:13px;">${t}</td>
                         <td style="font-weight:bold;">${(item.quantity * item.price).toFixed(0)} ₺</td>
@@ -489,12 +547,13 @@
             document.getElementById('totalPaid').innerText      = paid.toFixed(0);
             document.getElementById('totalRemaining').innerText = remaining.toFixed(0);
 
-            renderBaristaStatus();
+            renderDeliverBox();
         }
 
         function updateQty(idx, val) {
             val = parseInt(val);
-            if(isNaN(val) || val < 1) return;
+            if(!cart[idx] || !cart[idx].isNew) { renderCart(); return; }   // saved lines are not editable
+            if(isNaN(val) || val < 1) { renderCart(); return; }           // put the old number back
             cart[idx].quantity = val;
             renderCart();
         }
@@ -520,9 +579,7 @@
                     showToast(d.detail || 'Silinemedi!', 'error');
                     return;
                 }
-                const unsaved = cart.filter(i => i.isNew);   // keep anything not yet saved
-                await selectTable(currentTable);
-                cart.push(...unsaved); renderCart();
+                await reloadTableKeepUnsaved();              // keep anything not yet saved
                 loadAllTables();                             // table turns free if now empty
                 showToast(choice.qty < item.quantity ? `${choice.qty} adet iptal edildi` : 'Ürün iptal edildi', 'success');
                 refreshCancelsIfOpen();
@@ -534,33 +591,42 @@
         }
 
         
-        function renderBaristaStatus() {
-            const el = document.getElementById('baristaStatus');
+        // ════════════ TESLİM EDİLDİ (delivered) ════════════
+        // One button per table: "the products on this bill were brought to the
+        // table". Lines not delivered yet carry a ⏳ mark, and the table button
+        // gets an amber dot on every device until someone presses it. Products
+        // added later are "not delivered" again. Information only — it never
+        // changes amounts or payments.
+        function renderDeliverBox() {
+            const el = document.getElementById('deliverBox');
             if(!el) return;
-            if(!currentOrderId) { el.innerHTML = ''; return; }
-            const isH = currentBaristaStatus === 'hazirlaniyor';
-            el.innerHTML = `
-                <button onclick="setBaristaStatus('hazirlaniyor')"
-                    style="padding:4px 10px;font-size:11px;font-weight:bold;border-radius:5px;cursor:pointer;border:2px solid #3d8bfd;
-                        background:${isH ? '#3d8bfd' : 'transparent'};color:${isH ? 'white' : '#3d8bfd'};">
-                    🔥 Hazırlanıyor</button>
-                <button onclick="setBaristaStatus('hazir')"
-                    style="padding:4px 10px;font-size:11px;font-weight:bold;border-radius:5px;cursor:pointer;border:2px solid #20c997;
-                        background:${!isH ? '#20c997' : 'transparent'};color:${!isH ? 'white' : '#20c997'};">
-                    ✅ Hazır</button>`;
+            const saved   = cart.filter(i => !i.isNew);
+            const waiting = saved.filter(i => !i.delivered_at);
+            if(!currentTable || saved.length === 0) { el.innerHTML = ''; return; }
+            el.innerHTML = waiting.length
+                ? `<button class="deliver-btn" onclick="markDelivered()">✓ Teslim Edildi <span class="deliver-count">${waiting.length}</span></button>`
+                : `<span class="delivered-ok">✓ Teslim edildi</span>`;
         }
 
-        async function setBaristaStatus(status) {
-            if(!currentOrderId) return;
-            currentBaristaStatus = status;
+        async function markDelivered() {
+            const ids = cart.filter(i => !i.isNew && !i.delivered_at).map(i => i.id);
+            if(!currentTable || ids.length === 0) return;
+            showLoading();
             try {
-                await authFetch('/update-order-status', {
+                const res = await authFetch('/mark-delivered', {
                     method:  'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body:    JSON.stringify({order_id: currentOrderId, status: status})
+                    body:    JSON.stringify({table_no: currentTable, item_ids: ids})
                 });
-            } catch(e) { showToast('Durum güncellenemedi!', 'error'); }
-            renderBaristaStatus();
+                if(!res.ok) throw new Error();
+                await reloadTableKeepUnsaved();
+                loadAllTables();
+                showToast('Teslim edildi ✓', 'success');
+            } catch(e) {
+                showToast('İşaretlenemedi, tekrar deneyin', 'error');
+            } finally {
+                hideLoading();
+            }
         }
 
 
@@ -628,6 +694,7 @@
                 }
                 document.getElementById('t' + currentTable).classList.remove('red');
                 Duration.clearHeader(document.getElementById('orderTime'));
+                cartSeq++;
                 cart = [];
                 renderCart();
                 loadSales();
@@ -653,9 +720,15 @@
                 const res = await authFetch('/create-order', {
                     method:  'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body:    JSON.stringify({table_no: currentTable, items: newItems})
+                    body:    JSON.stringify({table_no: currentTable, items: newItems.map(i => ({
+                        product_name: i.product_name, quantity: i.quantity, price: i.price,
+                        client_id: i.client_id || (i.client_id = newLineId())
+                    }))})
                 });
-                if(!res.ok) throw new Error();
+                if(!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    throw new Error(typeof d.detail === 'string' ? d.detail : '');
+                }
                 // Reload the order from the server so saved items get their real
                 // database ids (needed for per-item split payment). Without this,
                 // new items have no id and /pay-items would 422.
@@ -663,7 +736,10 @@
                 await selectTable(currentTable);
                 showToast('Sipariş kaydedildi ✓', 'success');
             } catch(e) {
-                showToast('Kayıt hatası!', 'error');
+                // The YENİ lines stay in the list. Pressing Kaydet again is safe:
+                // lines the server already stored are not added twice.
+                showToast(e.message && !/fetch|network|load/i.test(e.message)
+                          ? e.message : 'Kayıt hatası! Tekrar Kaydet’e basın', 'error');
             } finally {
                 hideLoading();
             }
@@ -711,19 +787,40 @@
                         splits:   [{method: method, amount: total}]
                     })
                 });
-                if(!res.ok) throw new Error();
+                if(!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    const e2 = new Error(typeof err.detail === 'string' ? err.detail : '');
+                    e2.fromServer = true;
+                    throw e2;
+                }
                 const data = await res.json();
                 await afterPayment(data);
                 showToast('Ödeme tamamlandı ✓', 'success');
             } catch(e) {
-                showToast('Ödeme hatası!', 'error');
+                await afterPaymentError(e);
             } finally {
                 hideLoading();
             }
         }
 
+        // A payment request failed. Either the server refused it (nothing was
+        // charged) or the answer was lost on the way — then the payment MAY have
+        // been recorded. Never leave the old picture on screen: reload the table
+        // so the cashier sees what is really paid and what is still owed.
+        async function afterPaymentError(e) {
+            await selectTable(currentTable);
+            loadAllTables();
+            loadSales();
+            if(e && e.fromServer) {
+                showToast('Ödeme alınmadı' + (e.message ? ': ' + e.message : '!'), 'error');
+            } else {
+                showToast('Bağlantı hatası — ödeme durumunu ekrandan kontrol edin', 'error');
+            }
+        }
+
         // Shared post-payment handling: refresh table; clear if fully settled.
         async function afterPayment(data) {
+            cartSeq++;
             if(data.order_closed) {
                 document.getElementById('t' + currentTable).classList.remove('red');
                 Duration.clearHeader(document.getElementById('orderTime'));
@@ -733,6 +830,7 @@
                 const r = await authFetch('/table/' + currentTable);
                 const d = await r.json();
                 if(d.status === 'open') {
+                    cartSeq++;
                     cart = d.items.filter(i => i.item_status !== 'pending').map(i => ({...i, isNew: false}));
                     renderCart();
                 }
@@ -863,14 +961,15 @@
                 });
                 if(!res.ok) {
                     const err = await res.json().catch(() => ({}));
-                    const msg = typeof err.detail === 'string' ? err.detail : 'Geçersiz ödeme';
-                    throw new Error(msg);
+                    const e2 = new Error(typeof err.detail === 'string' ? err.detail : 'Geçersiz ödeme');
+                    e2.fromServer = true;
+                    throw e2;
                 }
                 const data = await res.json();
                 await afterPayment(data);
                 showToast(data.order_closed ? 'Masa kapatıldı ✓' : 'Ödeme alındı ✓', 'success');
             } catch(e) {
-                showToast('Ödeme hatası: ' + e.message, 'error');
+                await afterPaymentError(e);
             } finally {
                 hideLoading();
             }
@@ -950,6 +1049,13 @@
 
         // ════════════ BOOT ════════════
 
+        // Closing / reloading the page with products that were added but not
+        // saved: the browser asks before leaving, so they are not lost by a
+        // slip of the finger. (Not asked on logout or an expired session.)
+        window.addEventListener('beforeunload', e => {
+            if(!leavingOk && cart.some(i => i.isNew)) { e.preventDefault(); e.returnValue = ''; }
+        });
+
         window.onload = function() {
             document.getElementById('pinInput').addEventListener('keydown', e => {
                 if(e.key === 'Enter') checkPin();
@@ -967,22 +1073,43 @@
             scheduleMidnightRefresh();
 
             setInterval(loadAllTables, 20000);
+            // Every 30 s: bring in what other devices did to the selected table
+            // (a waiter added a product, a QR order was accepted, part was paid
+            // or cancelled). Only the SAVED lines are replaced — products the
+            // cashier has added but not saved yet (YENİ) always stay.
+            const savedSig = lines => lines.map(i => `${i.id}:${i.quantity}:${i.paid_qty || 0}:${i.delivered_at ? 1 : 0}`).join('|');
             setInterval(async () => {
-                if(!currentTable || !currentOrderId) return;
+                if(!currentTable || !AUTH_TOKEN) return;
+                // A save / payment / cancel is running (loading screen up): it
+                // reloads the table itself.
+                if(document.getElementById('loadingOverlay').style.display === 'flex') return;
+                const table = currentTable, seq = cartSeq;
                 try {
-                    const res  = await authFetch('/table/' + currentTable);
+                    const res  = await authFetch('/table/' + table);
                     const data = await res.json();
-                    if(data.status === 'open') {
-                        currentOrderId = data.order_id;
-                        const prevStatus = currentBaristaStatus;
-                        currentBaristaStatus = data.barista_status;
-                        const itemCount = data.items.length;
-                        if(cart.filter(i => !i.isNew).length < itemCount) {
-                            cart = data.items.filter(i => i.item_status !== 'pending').map(i => ({...i, isNew: false}));
-                            renderCart();
-                        } else {
-                            if(prevStatus !== null && prevStatus !== currentBaristaStatus) renderBaristaStatus();
-                        }
+                    // Throw the answer away if anything newer happened while it was
+                    // on its way: another table selected, or a save/payment/cancel
+                    // that already loaded fresher data.
+                    if(table !== currentTable || seq !== cartSeq) return;
+                    const open  = data.status === 'open';
+                    const saved = open ? data.items.filter(i => i.item_status !== 'pending')
+                                                   .map(i => ({...i, paid_qty: i.paid_qty || 0, isNew: false}))
+                                       : [];        // bill paid/cancelled on another device
+                    // A YENİ line the server already has (its save went through but
+                    // the answer was lost) is not shown a second time.
+                    const stored  = new Set(saved.map(i => i.client_id).filter(Boolean));
+                    const unsaved = cart.filter(i => i.isNew && !stored.has(i.client_id));
+                    currentOrderId = open ? data.order_id : null;
+                    if(savedSig(saved) !== savedSig(cart.filter(i => !i.isNew)) ||
+                       unsaved.length !== cart.filter(i => i.isNew).length) {
+                        // Don't redraw while a quantity is being typed on a new line;
+                        // the next tick catches up.
+                        const a = document.activeElement;
+                        if(a && a.tagName === 'INPUT' && document.getElementById('cart').contains(a)) return;
+                        cart = [...saved, ...unsaved];
+                        if(open) Duration.showHeader(document.getElementById('orderTime'), data.open_seconds, data.created_at);
+                        else     Duration.clearHeader(document.getElementById('orderTime'));
+                        renderCart();
                     }
                 } catch(e) {}
             }, 30000);
